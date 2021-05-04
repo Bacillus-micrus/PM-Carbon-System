@@ -1,0 +1,106 @@
+---
+title: "Carbon System of the Portugese Margin"
+author: "Nils Lucas Jacobsen"
+date: "04/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,fig.align="center")
+```
+
+PM trends step 0
+```{r}
+list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "seacarb", "xlsx", "reshape2")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+# This step installs packages if needed
+
+# Load packages -------------------------------------------------------------------------------------
+library(R.matlab)
+library(rlist)
+library(tidyverse)
+library(readxl)
+library(marmap)
+library(seacarb)
+library(xlsx)
+library(reshape2)
+
+# Load theme for plots ------------------------------------------------------------------------------
+PMtrends_theme <- theme_bw() +
+  theme(text = element_text(colour = "darkcyan"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title = element_text(size = rel(1.3)),
+        plot.title=element_text(size = rel(1.3), lineheight = .9,
+                                face = "bold", colour = "darkcyan"),
+        axis.text = element_text(size = rel(1.30)))
+```
+
+PM trends step 1
+```{r}
+A <- read.csv("Atlantic_Ocean.csv")
+ABasin <- data.frame(lon = c(-13, -7), lat = c(36, 42))  # defining the geographical region
+
+# filtering for geographic region and NAs for salinity and potential temperature --------------------
+A <- A %>%
+  filter(G2latitude >= (min(ABasin$lat)) & G2latitude <= (max(ABasin$lat))) %>%
+  filter(G2longitude >= (min(ABasin$lon)) & G2longitude <= (max(ABasin$lon))) %>%
+  filter((!is.na(G2salinity))) %>%
+  filter((!is.na(G2theta)))
+
+# TS diagram with sigma0 colored to study different water masses ------------------------------------
+ggplot(A, aes(G2salinity, G2theta, color = G2sigma0)) +
+  geom_point() +
+  scale_color_gradient(low = "khaki", high = "darkred") +
+  labs(color = "Sigma0") +
+  xlab("Salinity") +
+  ylab("Potential Temperature [°C]")
+
+# Layer separation ----------------------------------------------------------------------------------
+A <- A %>%
+  mutate(layer = ifelse(G2pressure >= 100 & G2sigma0 <= 27.2, "NACW",
+                      ifelse(G2sigma0 > 27.2 & G2sigma1 <= 32.35,"MW",
+                             ifelse(G2sigma1 > 32.35 & G2sigma2 <= 37, "LSW",
+                                    ifelse(G2sigma2 > 37, "NADW", NA))))) %>%
+  filter(!is.na(layer))  # Delete the NA values in layer (surface points)
+
+ord <- c("NACW", "MW", "LSW", "NADW")
+A$layer <- factor(A$layer, levels = ord)
+
+# adding flags, carbon computations, and binding of variables to data frame -------------------------
+A <- A %>%
+  mutate(flag = ifelse(G2talkf == 2 & G2tco2f == 2, 15,  # flag 15 Alk & DIC
+                     ifelse(G2talkf == 2 & G2tco2f == 0 & G2phtsinsitutpf == 2, 8,  # flag 8 pH & Alk
+                            ifelse(G2talkf == 0 & G2tco2f == 2 & G2phtsinsitutpf == 2, 9, NA))))  # flag 9 pH & DIC
+
+extendedA <- bind_cols(A[,1:ncol(A)-1],  # To delete the flag column
+                carb(flag = A$flag, 
+                     var1 = ifelse(A$flag == 15, A$G2talk/10^6, 
+                                 ifelse(A$flag == 9, A$G2phtsinsitutp,
+                                        ifelse(A$flag == 8, A$G2phtsinsitutp, NA))),
+                     var2 = ifelse(A$flag == 15, A$G2tco2/10^6, 
+                                             ifelse(A$flag == 9, A$G2tco2/10^6,
+                                                    ifelse(A$flag == 8, A$G2talk/10^6, NA))),                                 
+                     A$G2salinity, 
+                     A$G2theta, 
+                     A$G2pressure/10,  # Pressure in bar!
+                     Patm = 1.0, 
+                     Pt = A$G2phosphate/10^6,  # Nutrients in mols/Kg
+                     Sit = A$G2silicate/10^6,
+                     pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74"))
+
+# compute xcCO3 -------------------------------------------------------------------------------------
+
+extendedA <- mutate(extendedA, xcCO3 = CO3 - (CO3/OmegaAragonite))
+
+# add CCHDO data ----------------------------------------------------------
+
+# source('CCHDO_data.R')
+
+# all <- full_join(extendedA, extendedCCHDO)
+# ord <- c("NACW", "MW", "LSW", "NADW")
+# all$layer <- factor(all$layer, levels = ord)
+
+```
+
