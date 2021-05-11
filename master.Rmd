@@ -1,22 +1,27 @@
 ---
 title: "Carbon System of the Portugese Margin"
 author: "Nils Lucas Jacobsen"
-date: "04/05/2021"
-output: html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"  # With Sys.Date it updates automatically
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 5
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,fig.align="center")
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
 ```
 
-PM trends step 0
-```{r}
-list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "seacarb", "xlsx", "reshape2")
+# PM trends step 0
+```{r installing and loading packages}
+
+# This step installs packages if needed
+list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "seacarb", "xlsx", "reshape2", "readr", "lubridate")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
-# This step installs packages if needed
 
-# Load packages -------------------------------------------------------------------------------------
+# Load packages
 library(R.matlab)
 library(rlist)
 library(tidyverse)
@@ -25,39 +30,35 @@ library(marmap)
 library(seacarb)
 library(xlsx)
 library(reshape2)
+library(readr)
+library(lubridate)
 
-# Load theme for plots ------------------------------------------------------------------------------
-PMtrends_theme <- theme_bw() +
-  theme(text = element_text(colour = "darkcyan"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.title = element_text(size = rel(1.3)),
-        plot.title=element_text(size = rel(1.3), lineheight = .9,
-                                face = "bold", colour = "darkcyan"),
-        axis.text = element_text(size = rel(1.30)))
 ```
 
-PM trends step 1
-```{r}
-A <- read.csv("Atlantic_Ocean.csv")
-ABasin <- data.frame(lon = c(-13, -7), lat = c(36, 42))  # defining the geographical region
+# PM trends step 1
+```{r Loading and filtering data & defining study area}
 
-# filtering for geographic region and NAs for salinity and potential temperature --------------------
+A <- readMat('GLODAPv2.2020_Atlantic_Ocean.mat')
+# Keep the expocodes and their correspondence with G2cruise (expocodeno)
+expocodes <- data.frame(); expocodes <- as.data.frame(unlist(A$expocode))
+expocodes[, 2] <- as.data.frame(unlist(A$expocodeno))
+names(expocodes) <- c("expocode", "expocodeno")
+A <- A %>% list.remove(c("expocode", "expocodeno")) %>% as.data.frame()
+
+ABasin <- data.frame(lon = c(-13, -7), lat = c(36, 42))  # Defining the geographical region
+
+# Filter for geographical area and remove NAs in salinity and potential temperature
 A <- A %>%
   filter(G2latitude >= (min(ABasin$lat)) & G2latitude <= (max(ABasin$lat))) %>%
   filter(G2longitude >= (min(ABasin$lon)) & G2longitude <= (max(ABasin$lon))) %>%
+  mutate_all(.funs = funs(ifelse(. == "NaN", NA, .))) %>%
   filter((!is.na(G2salinity))) %>%
   filter((!is.na(G2theta)))
 
-# TS diagram with sigma0 colored to study different water masses ------------------------------------
-ggplot(A, aes(G2salinity, G2theta, color = G2sigma0)) +
-  geom_point() +
-  scale_color_gradient(low = "khaki", high = "darkred") +
-  labs(color = "Sigma0") +
-  xlab("Salinity") +
-  ylab("Potential Temperature [°C]")
+```
 
-# Layer separation ----------------------------------------------------------------------------------
+```{r Layer separation, eval = FALSE}
+
 A <- A %>%
   mutate(layer = ifelse(G2pressure >= 100 & G2sigma0 <= 27.2, "NACW",
                       ifelse(G2sigma0 > 27.2 & G2sigma1 <= 32.35,"MW",
@@ -68,39 +69,238 @@ A <- A %>%
 ord <- c("NACW", "MW", "LSW", "NADW")
 A$layer <- factor(A$layer, levels = ord)
 
-# adding flags, carbon computations, and binding of variables to data frame -------------------------
-A <- A %>%
-  mutate(flag = ifelse(G2talkf == 2 & G2tco2f == 2, 15,  # flag 15 Alk & DIC
-                     ifelse(G2talkf == 2 & G2tco2f == 0 & G2phtsinsitutpf == 2, 8,  # flag 8 pH & Alk
-                            ifelse(G2talkf == 0 & G2tco2f == 2 & G2phtsinsitutpf == 2, 9, NA))))  # flag 9 pH & DIC
+```
 
-extendedA <- bind_cols(A[,1:ncol(A)-1],  # To delete the flag column
-                carb(flag = A$flag, 
-                     var1 = ifelse(A$flag == 15, A$G2talk/10^6, 
-                                 ifelse(A$flag == 9, A$G2phtsinsitutp,
-                                        ifelse(A$flag == 8, A$G2phtsinsitutp, NA))),
-                     var2 = ifelse(A$flag == 15, A$G2tco2/10^6, 
-                                             ifelse(A$flag == 9, A$G2tco2/10^6,
-                                                    ifelse(A$flag == 8, A$G2talk/10^6, NA))),                                 
-                     A$G2salinity, 
-                     A$G2theta, 
-                     A$G2pressure/10,  # Pressure in bar!
-                     Patm = 1.0, 
-                     Pt = A$G2phosphate/10^6,  # Nutrients in mols/Kg
-                     Sit = A$G2silicate/10^6,
-                     pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74"))
+```{r Carbon computations}
 
-# compute xcCO3 -------------------------------------------------------------------------------------
+A <- A %>%  # Adding flags for seacarb
+  mutate(flag = ifelse(G2talkf == 2 & G2tco2f == 2, 15,  # Flag 15 Alk & DIC
+                     ifelse(G2talkf == 2 & G2tco2f == 0 & G2phtsinsitutpf == 2, 8,  # Flag 8 pH & Alk
+                            ifelse(G2talkf == 0 & G2tco2f == 2 & G2phtsinsitutpf == 2, 9, NA))))  # Flag 9 pH & DIC
+ 
+A <- bind_cols(A[, 1:ncol(A)-1],  # To delete the flag column
+                     carb(flag = A$flag, 
+                          var1 = ifelse(A$flag == 15, A$G2talk / 10^6, 
+                                      ifelse(A$flag == 9, A$G2phtsinsitutp,
+                                             ifelse(A$flag == 8, A$G2phtsinsitutp, NA))),
+                          var2 = ifelse(A$flag == 15, A$G2tco2 / 10^6, 
+                                      ifelse(A$flag == 9, A$G2tco2 / 10^6,
+                                             ifelse(A$flag == 8, A$G2talk / 10^6, NA))),
+                          A$G2salinity, 
+                          A$G2theta, 
+                          A$G2pressure / 10,  # Pressure in bar!
+                          Patm = 1.0, 
+                          Pt = A$G2phosphate / 10^6,  # Nutrients in mols/Kg
+                          Sit = A$G2silicate / 10^6,
+                          pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74"))
 
-extendedA <- mutate(extendedA, xcCO3 = CO3 - (CO3/OmegaAragonite))
+A <- mutate(A, xcCO3 = CO3 - (CO3 / OmegaAragonite))  # Compute xcCO3
 
-# add CCHDO data ----------------------------------------------------------
+A <- filter(A, !is.na(flag))
 
-# source('CCHDO_data.R')
+```
 
-# all <- full_join(extendedA, extendedCCHDO)
-# ord <- c("NACW", "MW", "LSW", "NADW")
-# all$layer <- factor(all$layer, levels = ord)
+```{r Adding country & dates}
+
+wtf = expocodes[expocodes$expocodeno %in% sort(unique(A$G2cruise)), ]
+wtf <- rename(wtf, G2cruise = expocodeno)  # Rename to ease the future join
+A <- full_join(A, wtf)
+rm(wtf)  # Cleaning
+
+# Adding country with https://vocab.ices.dk/ ICES codes (seen in Olsen 2016, GLODAP paper)
+A$country = "Spain"
+A$country[A$G2cruise %in% c(25, 58, 64)] = "Germany"
+A$country[A$G2cruise %in% c(237)] = "USA"
+A$country[A$G2cruise %in% c(368, 392, 393, 394, 395, 1047)] = "France"
+A$country[A$G2cruise %in% c(673)] = "Poland"
+A$country[A$G2cruise %in% c(679, 683, 693)] = "UK"
+
+A$country = reorder(A$country, A$country, function(x)-length(x))
+
+# Add dates in GLODAP
+A <- mutate(A, date = lubridate::ymd(paste(A$G2year, A$G2month, A$G2day, sep = "/")))
+
+```
+
+```{r Various plots}
+
+  ggplot(A, aes(G2salinity, G2theta, color = as.character(round(G2sigma0, 1)))) +
+    geom_point() +
+    labs(color = "Sigma0") +
+    xlab("Salinity") +
+    ylab("Potential Temperature [°C]")
+
+  ggplot(A, aes(x = country)) +
+    geom_bar(aes(fill = country)) +
+    scale_fill_brewer(type = "qual", palette = "Set1") +
+    labs(x = "Country", y = "number of samples", 
+         title = "Samples with carbon system in GLODAP near Portugal margin") +
+    theme_minimal()
+  
+  ggplot(A, aes(x = G2year)) +
+    geom_histogram(aes(fill = country), alpha = .5) +
+    labs(x = "Year", y = "number of samples", 
+         title = "Samples with carbon system in GLODAP near Portugal margin") +
+    theme_minimal()
+  
+  A %>%
+    filter(G2depth < 500) %>%
+    ggplot(., aes(G2year, DIC * 10^6)) + 
+    geom_point() + 
+    geom_smooth(method = "lm")
+  
+  A %>%
+    filter(G2depth < 500) %>%
+    ggplot(., aes(G2year, pH)) + 
+    geom_point() + 
+    geom_smooth(method = "lm")
+  
+```
+
+```{r Adding atmospheric data, eval = FALSE}
+
+# Annual CO2 from Mauna Loa
+url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_annmean_mlo.txt'
+file  <- tempfile()
+download.file(url, file)
+CO2ml <- read.table(file, header = F)
+CO2ml <- CO2ml %>%
+  rename(year = V1, ppm = V2, uncertainty = V3) %>%
+  mutate(site = "Mauna Loa") %>%
+  select(-uncertainty)
+
+CO2 <- rename(CO2, G2year = year)  # To match the name in G2
+all <- left_join(extendedA, CO2, by = "G2year")
+
+# Monthly CO2 (mCO2) from Mauna Loa
+url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_mm_mlo.txt'
+file  <- tempfile()
+download.file(url, file)
+mCO2 <- read.table(file, header = F)
+mCO2 <- rename(mCO2, year = V1, month = V2, decimal_year = V3, ppm = V4, interpolated_ppm = V5, trend = V6, ndays = V7)
+
+mCO2 <- mCO2 %>%
+  rename(G2year = year, G2month = month, mppm = ppm) %>%  # To match the name in G2
+  select(G2year, G2month, mppm)
+all <- left_join(all, mCO2, by = c("G2year", "G2month"))
+
+# Monthly CO2 from the Azores
+https://www.esrl.noaa.gov/gmd/aftp/data/trace_gases/co2/flask/surface/co2_azr_surface-flask_1_ccgg_month.txt
+
+```
+
+# PM trends step 2
+```{r Adding carbon data from NN & computing mean pH}
+
+# CO2 data from OldPT and ICES after Neural Networks
+postNN_OldPT <- read_csv("postNN_CO2sys_OldPT.csv", na = "NaN")
+postNN_ICES <- read_csv("postNN_CO2sys_ICESfiltered.csv", na = "NaN")
+
+onlypH_OldPT <- postNN_OldPT %>%  # A new data.frame from the loaded csv (and we keep it intact as postNN*)
+  rename(G2year = year, pH = pHin) %>%  # Same name as in GLODAP
+  filter(between(depth, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
+  filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
+  select(G2year, pH) %>%  # Clean it all
+  mutate(country = "Portugal")
+  
+# ICES data (The same for the ICES data)
+onlypH_ICES <- postNN_ICES %>%
+  rename(G2year = year, pH = pHin) %>%  # Same name as in GLODAP
+  filter(between(PRESdb, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
+  select(G2year, pH) %>%  # Clean it all
+  mutate(country = "Portugal")
+
+# Again for the GLODAP data
+onlypH_G2 <- A %>%
+  filter(between(G2depth, 100, 500)) %>%
+  select(G2year, pH, country)
+
+# Joining the three data.farmes
+dummyA <- full_join(onlypH_G2, onlypH_OldPT)
+extendedA <- full_join(dummyA, onlypH_ICES)  # 2-step join
+rm(dummyA)
+
+# Computing the mean pH per year
+finalA <- extendedA %>%
+  group_by(G2year) %>%
+  summarise_at(vars(pH), mean, na.rm = TRUE)
+
+# Computing the error of the mean ph per year
+finalAerror <- extendedA %>%
+  group_by(G2year) %>%
+  summarise_at(vars(pH), sd, na.rm = TRUE)
+
+```
+
+```{r Linear model for pH}
+
+RLMmodel <- MASS::rlm(pH ~ G2year, data = finalA, weights = (1 / finalAerror$pH))
+
+tableRLMmodel <- summary(RLMmodel)
+trend <- tableRLMmodel[["coefficients"]][2, 1]  # This is the rate of change
+etrend <- tableRLMmodel[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalue <- pnorm(
+  abs(
+    broom::tidy(RLMmodel)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+```
+
+```{r Plot trend pH}
+
+ggplot(finalA, aes(G2year, pH))+
+  geom_jitter(data = extendedA, aes(colour = country), alpha = .7, shape = 4, size = .3) +
+  geom_smooth(method = MASS::rlm, color = "red", size = 2) +
+  geom_point() +
+  theme_minimal()
+
+```
+
+# PM trends step 3
+```{r Computing mean Cant per year}
+
+Cant <- read.csv("Cant.csv")
+
+onlyCant <- Cant %>% 
+  filter(latitude >= (min(ABasin$lat)) & latitude <= (max(ABasin$lat))) %>%
+  filter(longitude >= (min(ABasin$lon)) & longitude <= (max(ABasin$lon))) %>%
+  mutate_all(.funs = funs(ifelse(. == "NaN", NA, .))) %>%
+  filter(between(Depth, 100, 500)) %>%
+  filter(!is.na(cAntPhiCt0ML)) %>%
+  select(year, cAntPhiCt0ML)
+
+finalCant <- onlyCant %>%
+  group_by(year) %>%
+  summarise_at(vars(cAntPhiCt0ML), mean, na.rm = TRUE)
+
+finalCantError <- onlyCant %>%
+  group_by(year) %>%
+  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+
+```
+
+```{r Linear model for Cant}
+
+RLMmodelCant <- MASS::rlm(cAntPhiCt0ML ~ year, data = finalCant, weights = (1 / finalCantError$cAntPhiCt0ML))
+
+tableRLMmodelCant <- summary(RLMmodelCant)
+trendCant <- tableRLMmodelCant[["coefficients"]][2,1]  # This is the rate of change
+etrendCant <- tableRLMmodelCant[["coefficients"]][2,2]  # etrend stands for "error in the trend"
+
+pvalueCant <- pnorm(
+  abs(
+    broom::tidy(RLMmodelCant)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+```
+
+```{r Plot trend Cant}
+
+ggplot(finalCant, aes(year, cAntPhiCt0ML)) +
+  geom_smooth(method = MASS::rlm, color = "red", size = 2) +
+  geom_point() +
+  theme_minimal()
 
 ```
 
