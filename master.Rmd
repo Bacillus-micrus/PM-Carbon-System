@@ -285,8 +285,8 @@ finalCantError <- onlyCant %>%
 RLMmodelCant <- MASS::rlm(cAntPhiCt0ML ~ year, data = finalCant, weights = (1 / finalCantError$cAntPhiCt0ML))
 
 tableRLMmodelCant <- summary(RLMmodelCant)
-trendCant <- tableRLMmodelCant[["coefficients"]][2,1]  # This is the rate of change
-etrendCant <- tableRLMmodelCant[["coefficients"]][2,2]  # etrend stands for "error in the trend"
+trendCant <- tableRLMmodelCant[["coefficients"]][2, 1]  # This is the rate of change
+etrendCant <- tableRLMmodelCant[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
 
 pvalueCant <- pnorm(
   abs(
@@ -304,3 +304,44 @@ ggplot(finalCant, aes(year, cAntPhiCt0ML)) +
 
 ```
 
+# PM trends step 4
+```{r Computing mean xcCO3 per year}
+
+onlyXcCO3 <- A %>% 
+  filter(between(G2depth, 100, 500)) %>%
+  filter(!is.na(xcCO3)) %>%
+  select(G2year, xcCO3)
+
+finalXcCO3 <- onlyXcCO3 %>%
+  group_by(G2year) %>%
+  summarise_at(vars(xcCO3), mean, na.rm = TRUE)
+
+finalXcCO3Error <- onlyXcCO3 %>%
+  group_by(G2year) %>%
+  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+
+```
+
+```{r Linear model for xcCO3}
+
+RLMmodelXcCo3 <- MASS::rlm(xcCO3 ~ G2year, data = finalXcCO3, weights = (1 / finalXcCO3Error$xcCO3))
+
+tableRLMmodelXcCo3 <- summary(RLMmodelXcCo3)
+trendXcCo3 <- tableRLMmodelXcCo3[["coefficients"]][2, 1]  # This is the rate of change
+etrendXcCo3 <- tableRLMmodelXcCo3[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalueCant <- pnorm(
+  abs(
+    broom::tidy(RLMmodelXcCo3)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+```
+
+```{r Plot trend xcCO3}
+
+ggplot(finalXcCO3, aes(G2year, xcCO3)) +
+  geom_smooth(method = MASS::rlm, color = "red", size = 2) +
+  geom_point() +
+  theme_minimal()
+
+```
