@@ -47,27 +47,28 @@ A <- A %>% list.remove(c("expocode", "expocodeno")) %>% as.data.frame()
 
 ABasin <- data.frame(lon = c(-13, -7), lat = c(36, 42))  # Defining the geographical region
 
-# Filter for geographical area and remove NAs in salinity and potential temperature
+# Filter for geographical area, remove NAs in salinity and potential temperature, and add data soucre
 A <- A %>%
   filter(G2latitude >= (min(ABasin$lat)) & G2latitude <= (max(ABasin$lat))) %>%
   filter(G2longitude >= (min(ABasin$lon)) & G2longitude <= (max(ABasin$lon))) %>%
   mutate_all(.funs = funs(ifelse(. == "NaN", NA, .))) %>%
   filter((!is.na(G2salinity))) %>%
-  filter((!is.na(G2theta)))
+  filter((!is.na(G2theta))) %>%
+  mutate(source = "GLODAP")
 
 ```
 
 ```{r Layer separation, eval = FALSE}
 
-A <- A %>%
-  mutate(layer = ifelse(G2pressure >= 100 & G2sigma0 <= 27.2, "NACW",
-                      ifelse(G2sigma0 > 27.2 & G2sigma1 <= 32.35,"MW",
-                             ifelse(G2sigma1 > 32.35 & G2sigma2 <= 37, "LSW",
-                                    ifelse(G2sigma2 > 37, "NADW", NA))))) %>%
-  filter(!is.na(layer))  # Delete the NA values in layer (surface points)
-
-ord <- c("NACW", "MW", "LSW", "NADW")
-A$layer <- factor(A$layer, levels = ord)
+# A <- A %>%
+#   mutate(layer = ifelse(G2pressure >= 100 & G2sigma0 <= 27.2, "NACW",
+#                       ifelse(G2sigma0 > 27.2 & G2sigma1 <= 32.35,"MW",
+#                              ifelse(G2sigma1 > 32.35 & G2sigma2 <= 37, "LSW",
+#                                     ifelse(G2sigma2 > 37, "NADW", NA))))) %>%
+#   filter(!is.na(layer))  # Delete the NA values in layer (surface points)
+# 
+# ord <- c("NACW", "MW", "LSW", "NADW")
+# A$layer <- factor(A$layer, levels = ord)
 
 ```
 
@@ -160,32 +161,32 @@ A <- mutate(A, date = lubridate::ymd(paste(A$G2year, A$G2month, A$G2day, sep = "
 ```{r Adding atmospheric data, eval = FALSE}
 
 # Annual CO2 from Mauna Loa
-url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_annmean_mlo.txt'
-file  <- tempfile()
-download.file(url, file)
-CO2ml <- read.table(file, header = F)
-CO2ml <- CO2ml %>%
-  rename(year = V1, ppm = V2, uncertainty = V3) %>%
-  mutate(site = "Mauna Loa") %>%
-  select(-uncertainty)
-
-CO2 <- rename(CO2, G2year = year)  # To match the name in G2
-all <- left_join(extendedA, CO2, by = "G2year")
-
-# Monthly CO2 (mCO2) from Mauna Loa
-url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_mm_mlo.txt'
-file  <- tempfile()
-download.file(url, file)
-mCO2 <- read.table(file, header = F)
-mCO2 <- rename(mCO2, year = V1, month = V2, decimal_year = V3, ppm = V4, interpolated_ppm = V5, trend = V6, ndays = V7)
-
-mCO2 <- mCO2 %>%
-  rename(G2year = year, G2month = month, mppm = ppm) %>%  # To match the name in G2
-  select(G2year, G2month, mppm)
-all <- left_join(all, mCO2, by = c("G2year", "G2month"))
-
-# Monthly CO2 from the Azores
-https://www.esrl.noaa.gov/gmd/aftp/data/trace_gases/co2/flask/surface/co2_azr_surface-flask_1_ccgg_month.txt
+# url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_annmean_mlo.txt'
+# file  <- tempfile()
+# download.file(url, file)
+# CO2ml <- read.table(file, header = F)
+# CO2ml <- CO2ml %>%
+#   rename(year = V1, ppm = V2, uncertainty = V3) %>%
+#   mutate(site = "Mauna Loa") %>%
+#   select(-uncertainty)
+# 
+# CO2 <- rename(CO2, G2year = year)  # To match the name in G2
+# all <- left_join(extendedA, CO2, by = "G2year")
+# 
+# # Monthly CO2 (mCO2) from Mauna Loa
+# url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_mm_mlo.txt'
+# file  <- tempfile()
+# download.file(url, file)
+# mCO2 <- read.table(file, header = F)
+# mCO2 <- rename(mCO2, year = V1, month = V2, decimal_year = V3, ppm = V4, interpolated_ppm = V5, trend = V6, ndays = V7)
+# 
+# mCO2 <- mCO2 %>%
+#   rename(G2year = year, G2month = month, mppm = ppm) %>%  # To match the name in G2
+#   select(G2year, G2month, mppm)
+# all <- left_join(all, mCO2, by = c("G2year", "G2month"))
+# 
+# # Monthly CO2 from the Azores
+# https://www.esrl.noaa.gov/gmd/aftp/data/trace_gases/co2/flask/surface/co2_azr_surface-flask_1_ccgg_month.txt
 
 ```
 
@@ -194,26 +195,28 @@ https://www.esrl.noaa.gov/gmd/aftp/data/trace_gases/co2/flask/surface/co2_azr_su
 
 # CO2 data from OldPT and ICES after Neural Networks
 postNN_OldPT <- read_csv("postNN_CO2sys_OldPT.csv", na = "NaN")
+postNN_OldPT <- mutate(postNN_OldPT, source = "Old PT")
 postNN_ICES <- read_csv("postNN_CO2sys_ICESfiltered.csv", na = "NaN")
+postNN_ICES <- mutate(postNN_ICES, source = "ICES")
 
 onlypH_OldPT <- postNN_OldPT %>%  # A new data.frame from the loaded csv (and we keep it intact as postNN*)
   rename(G2year = year, pH = pHin) %>%  # Same name as in GLODAP
   filter(between(depth, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
   filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
-  select(G2year, pH) %>%  # Clean it all
+  select(G2year, pH, source) %>%  # Clean it all
   mutate(country = "Portugal")
   
 # ICES data (The same for the ICES data)
 onlypH_ICES <- postNN_ICES %>%
   rename(G2year = year, pH = pHin) %>%  # Same name as in GLODAP
   filter(between(PRESdb, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
-  select(G2year, pH) %>%  # Clean it all
+  select(G2year, pH, source) %>%  # Clean it all
   mutate(country = "Portugal")
 
 # Again for the GLODAP data
 onlypH_G2 <- A %>%
   filter(between(G2depth, 100, 500)) %>%
-  select(G2year, pH, country)
+  select(G2year, pH, country, source)
 
 # Joining the three data.farmes
 dummyA <- full_join(onlypH_G2, onlypH_OldPT)
@@ -250,7 +253,7 @@ pvalue <- pnorm(
 ```{r Plot trend pH}
 
 ggplot(finalA, aes(G2year, pH))+
-  geom_jitter(data = extendedA, aes(colour = country), alpha = .7, shape = 4, size = .3) +
+  geom_jitter(data = extendedA, aes(colour = source), alpha = .7, shape = 4, size = .3) +
   geom_smooth(method = MASS::rlm, color = "red", size = 2) +
   geom_point() +
   theme_minimal()
