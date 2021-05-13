@@ -1,5 +1,5 @@
 ---
-title: "Carbon System of the Portugese Margin"
+title: "Ocean acidification in the continental margin off Portugal: filling gaps with old data"
 author: "Nils Lucas Jacobsen"
 date: "`r format(Sys.time(), '%d %B, %Y')`"  # With Sys.Date it updates automatically
 output: 
