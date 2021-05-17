@@ -14,7 +14,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
 ```
 
-# PM trends step 0
+# PM trends step 0 - Packages
 ```{r installing and loading packages}
 
 # This step installs packages if needed
@@ -35,7 +35,7 @@ library(readr)
 library(lubridate)
 ```
 
-# PM trends step 1
+# PM trends step 1 - Preparation, carbon computations, and preliminary analysis
 ```{r Loading and filtering data & defining study area}
 
 A <- readMat('GLODAPv2.2020_Atlantic_Ocean.mat')
@@ -153,35 +153,20 @@ A <- mutate(A, date = lubridate::ymd(paste(A$G2year, A$G2month, A$G2day, sep = "
     geom_smooth(method = "lm")
 ```
 
-```{r Adding atmospheric data, eval = FALSE}
+```{r Adding atmospheric data}
 
 # Annual CO2 from Mauna Loa
-# url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_annmean_mlo.txt'
-# file  <- tempfile()
-# download.file(url, file)
-# CO2ml <- read.table(file, header = F)
-# CO2ml <- CO2ml %>%
-#   rename(year = V1, ppm = V2, uncertainty = V3) %>%
-#   mutate(site = "Mauna Loa") %>%
-#   select(-uncertainty)
-# 
-# CO2 <- rename(CO2, G2year = year)  # To match the name in G2
-# all <- left_join(extendedA, CO2, by = "G2year")
-# 
-# # Monthly CO2 (mCO2) from Mauna Loa
-# url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_mm_mlo.txt'
-# file  <- tempfile()
-# download.file(url, file)
-# mCO2 <- read.table(file, header = F)
-# mCO2 <- rename(mCO2, year = V1, month = V2, decimal_year = V3, ppm = V4, interpolated_ppm = V5, trend = V6, ndays = V7)
-# 
-# mCO2 <- mCO2 %>%
-#   rename(G2year = year, G2month = month, mppm = ppm) %>%  # To match the name in G2
-#   select(G2year, G2month, mppm)
-# all <- left_join(all, mCO2, by = c("G2year", "G2month"))
-# 
-# # Monthly CO2 from the Azores
-# https://www.esrl.noaa.gov/gmd/aftp/data/trace_gases/co2/flask/surface/co2_azr_surface-flask_1_ccgg_month.txt
+url <- 'ftp://ftp.cmdl.noaa.gov/ccg/co2/trends/co2_annmean_mlo.txt'
+file  <- tempfile()
+download.file(url, file)
+CO2 <- read.table(file, header = F)
+CO2 <- CO2 %>%
+  rename(year = V1, ppm = V2, uncertainty = V3) %>%
+  mutate(site = "Mauna Loa") %>%
+  select(-uncertainty)
+
+CO2 <- rename(CO2, G2year = year)  # To match the name in G2
+A <- left_join(A, CO2, by = "G2year")
 ```
 
 # PM trends step 2 - Trend analysis pH
@@ -208,7 +193,8 @@ only_pH_OldPT <- postNN_OldPT %>%  # A new data.frame from the loaded csv (and w
 only_pH_ICES <- postNN_ICES %>%
   rename(G2year = year, pH = pHin) %>%  # Same name as in GLODAP
   filter(between(PRESdb, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
-  select(G2year, pH, source, country)   # Clean it all
+  filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
+  select(G2year, pH, source, country)  # Clean it all
 
 # Again for the GLODAP data
 only_pH_G2 <- A %>%
@@ -298,7 +284,7 @@ ggplot(final_Cant, aes(year, cAntPhiCt0ML)) +
   geom_point() +
   theme_minimal() +
   xlab("Year") +
-  ylab("Anthropogenic carbon [UNIT?]")
+  ylab("Anthropogenic carbon [μmol/kg]")
 ```
 
 # PM trends step 4 - Trend analysis xcCO3
@@ -358,3 +344,70 @@ ggplot(final_xcCO3, aes(G2year, xcCO3)) +
   theme_minimal() +
   xlab("Year")
 ```
+# PM trends step 5 - Plots
+```{r Map with stations}
+
+t0 <- Sys.time()
+
+stations <- A %>%
+  filter(!is.na(xcCO3)) %>%
+  select(G2longitude, G2latitude, G2year) %>%
+  distinct(G2longitude, G2latitude, .keep_all = TRUE)
+
+# Error in if (ncol(x) == 3 & !exists("bathy", inherits = FALSE)) { : argument is of length zero
+m <- getNOAA.bathy(lon1 = ABasin[1, 1] - 4, lon2 = ABasin[2, 1] + 5,  # -4 and +5 what does it mean?
+                     lat1 = ABasin[1, 2] -5 , lat2 = ABasin[2, 2] + 3, resolution = 1)  # -5 and +3 # 1 is the smallest 
+
+(basemap <- ggplot(m, aes(x = x, y = y)) + 
+    coord_quickmap() +
+    geom_raster(aes(fill = z)) +
+    scale_fill_gradient2(low = "cadetblue1", mid = "white", high = "darkgreen", midpoint = 0, guide = F) +
+    geom_contour(aes(z = z), breaks = c(-1000, -2000, -3000, -4000, -5000), colour = "gray", size = 0.5) +  # depth only between 100 and 500? what breaks?
+    geom_contour(aes(z = z), breaks = c(0), colour = "black", size = 1) +
+    # can I simply put the years from my data in?
+    geom_point(data = stations[stations$G2year == 1981, ], aes(x = G2longitude, y = G2latitude),  
+               color = "#fc9272", size = 4) + 
+    geom_point(data = stations[stations$G2year == 1982, ], aes(x = G2longitude, y = G2latitude), 
+               color = "#fb6a4a", size = 4) + 
+    geom_point(data = stations[stations$G2year == 1984, ], aes(x = G2longitude, y = G2latitude), 
+               color = "#ef3b2c", size = 4) + 
+    geom_point(data = stations[stations$G2year == 1986, ], aes(x = G2longitude, y = G2latitude), 
+               color = "#cb181d", size = 4) + 
+    geom_point(data = stations[stations$G2year == 1988, ], aes(x = G2longitude, y = G2latitude), 
+               color = "#99000d", size = 4) + 
+    geom_point(data = stations[stations$G2year == 1989, ], aes(x = G2longitude, y = G2latitude), 
+               color = "black", size = 4, shape = 17) +
+    geom_point(data = stations[stations$G2year == 1991, ], aes(x = G2longitude, y = G2latitude), 
+               color = "#1f78b4", size = 4, shape = 6) +
+    geom_point(data = stations[stations$G2year == 1993, ], aes(x = G2longitude, y = G2latitude), 
+               color = "chartreuse4", size = 4, shape = 9) +
+    geom_point(data = stations[stations$G2year == 1997, ], aes(x = G2longitude, y = G2latitude), 
+               color = "#fdbf6f", size = 4, shape = 8) +
+    geom_point(data = stations[stations$G2year == 2001, ], aes(x = G2longitude, y = G2latitude),  # what other shapes should I use?
+               color = "#6a3d9a", size = 4, shape = 18) +
+    scale_shape_manual(values = seq(15, 25)) +  # what does this line do?
+    # scale_x_continuous(expand = c(0,0), breaks = c(-30, -40, -50, -60),  # need to adjust 
+    #                    labels = c("30ºW", "40ºW", "50ºW", "60ºW")) +
+    # scale_y_continuous(expand = c(0,0), breaks = c(-30, -35, -40, -45, -50), 
+    #                    labels = c("30ºS", "35ºS", "40ºS", "45ºS", "50ºS")) +
+    # labs(x = "", y = "") +
+    theme(
+      panel.border = element_rect(colour = "black", fill = NA, size = 4),
+      text = element_text(size = 28, colour = "black"),
+      legend.title = element_blank())
+)
+
+savefigure = 0
+if (savefigure) {
+ggsave(filename = "PMtrends_map.pdf",
+       plot = basemap, dpi = 300, width = 20, height = 23, units = "cm")
+}
+
+abrirfigura = 0
+if (abrirfigura) {
+  shell.exec("PMtrends_map.pdf")
+}
+
+print(paste("Done in", ceiling(Sys.time() - t0)))
+```
+
