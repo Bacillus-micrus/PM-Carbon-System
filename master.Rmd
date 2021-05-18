@@ -57,7 +57,7 @@ A <- A %>%
   mutate(source = "GLODAP")
 ```
 
-```{r Layer separation, eval = FALSE}
+```{r Layer separation, eval = FALSE, echo=FALSE}
 
 # A <- A %>%
 #   mutate(layer = ifelse(G2pressure >= 100 & G2sigma0 <= 27.2, "NACW",
@@ -69,6 +69,7 @@ A <- A %>%
 # ord <- c("NACW", "MW", "LSW", "NADW")
 # A$layer <- factor(A$layer, levels = ord)
 ```
+## Carbon computations
 
 ```{r Carbon computations}
 
@@ -97,7 +98,7 @@ A <- mutate(A, xcCO3 = CO3 - (CO3 / OmegaAragonite))  # Compute xcCO3
 
 A <- filter(A, !is.na(flag))
 ```
-
+## Add country & dates
 ```{r Adding country & dates}
 
 wtf = expocodes[expocodes$expocodeno %in% sort(unique(A$G2cruise)), ]
@@ -119,7 +120,7 @@ A$country = reorder(A$country, A$country, function(x)-length(x))
 A <- mutate(A, date = lubridate::ymd(paste(A$G2year, A$G2month, A$G2day, sep = "/")))
 ```
 
-```{r Various prelimanary plots}
+```{r Various preliminary plots}
 
   ggplot(A, aes(G2salinity, G2theta, color = as.character(round(G2sigma0, 1)))) +
     geom_point() +
@@ -211,7 +212,7 @@ final_pH <- extended_pH %>%
   group_by(G2year) %>%
   summarise_at(vars(pH), mean, na.rm = TRUE)
 
-# Computing the error of the mean ph per year
+# Computing the error of the mean pH per year
 final_pH_error <- extended_pH %>%
   group_by(G2year) %>%
   summarise_at(vars(pH), sd, na.rm = TRUE)
@@ -280,6 +281,7 @@ pvalue_Cant <- pnorm(
 ```{r Plot trend Cant}
 
 ggplot(final_Cant, aes(year, cAntPhiCt0ML)) +
+  geom_jitter(data = only_Cant, alpha = .7, shape = 4, size = .3) +
   geom_smooth(method = MASS::rlm, color = "red", size = 2) +
   geom_point() +
   theme_minimal() +
