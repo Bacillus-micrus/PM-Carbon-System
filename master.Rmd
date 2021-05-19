@@ -18,16 +18,18 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align =
 ```{r installing and loading packages}
 
 # This step installs packages if needed
-list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "seacarb", "xlsx", "reshape2", "readr", "lubridate")
+list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "rgdal", "raster", "seacarb", "xlsx", "reshape2", "readr", "lubridate")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 
 # Load packages
 library(R.matlab)
 library(rlist)
+library(marmap)
+library(rgdal)
+library(raster)
 library(tidyverse)
 library(readxl)
-library(marmap)
 library(seacarb)
 library(xlsx)
 library(reshape2)
@@ -163,7 +165,7 @@ CO2 <- read.table(file, header = F)
 CO2 <- CO2 %>%
   rename(year = V1, ppm = V2, uncertainty = V3) %>%
   mutate(site = "Mauna Loa") %>%
-  select(-uncertainty)
+  dplyr::select(-uncertainty)
 
 CO2 <- rename(CO2, G2year = year)  # To match the name in G2
 A <- left_join(A, CO2, by = "G2year")
@@ -201,24 +203,41 @@ only_pH_G2 <- A %>%
   filter(between(G2depth, 100, 500)) %>%
   select(G2year, pH, source, country)
 
-# Joining the three data.farmes
-dummy_pH <- full_join(only_pH_G2, only_pH_OldPT)
-extended_pH <- full_join(dummy_pH, only_pH_ICES)  # 2-step join
-rm(dummy_pH)
+# Joining the three data.frames
+pH_NN <- full_join(only_pH_OldPT, only_pH_ICES)
+pH <- full_join(pH_NN, only_pH_G2)  # 2-step join
 
-# Computing the mean pH per year
-final_pH <- extended_pH %>%
+# Computing the mean pH and error of the mean per year for the whole data set (GLODAP + OldPT + ICES)
+final_pH <- pH %>%
   group_by(G2year) %>%
   summarise_at(vars(pH), mean, na.rm = TRUE)
 
-# Computing the error of the mean ph per year
-final_pH_error <- extended_pH %>%
+final_pH_error <- pH %>%
+  group_by(G2year) %>%
+  summarise_at(vars(pH), sd, na.rm = TRUE)
+
+# Computing the mean pH and error of the mean per year for the NN data set (OldPT + ICES)
+final_pH_NN <- pH_NN %>%
+  group_by(G2year) %>%
+  summarise_at(vars(pH), mean, na.rm = TRUE)
+
+final_pH_error_NN <- pH_NN %>%
+  group_by(G2year) %>%
+  summarise_at(vars(pH), sd, na.rm = TRUE)
+
+# Computing the mean pH and error of the mean per year for the GLODAP data set
+final_pH_G2 <- only_pH_G2 %>%
+  group_by(G2year) %>%
+  summarise_at(vars(pH), mean, na.rm = TRUE)
+
+final_pH_error_G2 <- only_pH_G2 %>%
   group_by(G2year) %>%
   summarise_at(vars(pH), sd, na.rm = TRUE)
 ```
 
 ```{r Linear model for pH}
 
+# Linear model for the complete data set (GLODAP + OldPT + ICES)
 RLMmodel_pH <- MASS::rlm(pH ~ G2year, data = final_pH, weights = (1 / final_pH_error$pH))
 
 tableRLMmodel_pH <- summary(RLMmodel_pH)
@@ -229,12 +248,36 @@ pvalue_pH <- pnorm(
   abs(
     broom::tidy(RLMmodel_pH)
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+# Linear model for the NN data set (OldPT + ICES)
+RLMmodel_pH_NN <- MASS::rlm(pH ~ G2year, data = final_pH_NN, weights = (1 / final_pH_error_NN$pH))
+
+tableRLMmodel_pH_NN <- summary(RLMmodel_pH_NN)
+trend_pH_NN <- tableRLMmodel_pH_NN[["coefficients"]][2, 1]  # This is the rate of change
+etrend_pH_NN <- tableRLMmodel_pH_NN[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalue_pH_NN <- pnorm(
+  abs(
+    broom::tidy(RLMmodel_pH_NN)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+# Linear model for the GLODAP data set
+RLMmodel_pH_G2 <- MASS::rlm(pH ~ G2year, data = final_pH_G2, weights = (1 / final_pH_error_G2$pH))
+
+tableRLMmodel_pH_G2 <- summary(RLMmodel_pH_G2)
+trend_pH_G2 <- tableRLMmodel_pH_G2[["coefficients"]][2, 1]  # This is the rate of change
+etrend_pH_G2 <- tableRLMmodel_pH_G2[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalue_pH_G2 <- pnorm(
+  abs(
+    broom::tidy(RLMmodel_pH_G2)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 ```
 
 ```{r Plot trend pH}
 
 ggplot(final_pH, aes(G2year, pH)) +
-  geom_jitter(data = extended_pH, aes(colour = source), alpha = .7, shape = 4, size = .3) +
+  geom_jitter(data = pH, aes(colour = source), alpha = .7, shape = 4, size = .3) +
   geom_smooth(method = MASS::rlm, color = "red", size = 2) +
   geom_point() +
   theme_minimal() +
@@ -293,7 +336,8 @@ ggplot(final_Cant, aes(year, cAntPhiCt0ML)) +
 only_xcCO3_G2 <- A %>% 
   filter(between(G2depth, 100, 500)) %>%
   filter(!is.na(xcCO3)) %>%
-  select(G2year, xcCO3, source, country)
+  select(G2year, xcCO3, source, country) %>%
+  mutate(xcCO3 = xcCO3 * 10^6)  # in micromol/kg!
 
 only_xcCO3_OldPT <- postNN_OldPT %>% 
   rename(G2year = year) %>%  # Same name as in GLODAP
@@ -308,21 +352,40 @@ only_xcCO3_ICES <- postNN_ICES %>%
   select(G2year, xcCO3, source, country)
 
 # Joining the three data.farmes
-dummy_xcCO3 <- full_join(only_xcCO3_G2, only_xcCO3_OldPT)
-extended_xcCO3 <- full_join(dummy_xcCO3, only_xcCO3_ICES)  # 2-step join
-rm(dummy_xcCO3)
+xcCO3_NN <- full_join(only_xcCO3_OldPT, only_xcCO3_ICES)
+xcCO3 <- full_join(xcCO3_NN, only_xcCO3_G2)  # 2-step join
 
-final_xcCO3 <- extended_xcCO3 %>%
+# Computing the mean xcCO3 and error of the mean per year for the whole data set
+final_xcCO3 <- xcCO3 %>%
   group_by(G2year) %>%
   summarise_at(vars(xcCO3), mean, na.rm = TRUE)
 
-final_xcCO3_error <- extended_xcCO3 %>%
+final_xcCO3_error <- xcCO3 %>%
+  group_by(G2year) %>%
+  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+
+# Computing the mean xcCO3 and error of the mean per year for the NN data set
+final_xcCO3_NN <- xcCO3_NN %>%
+  group_by(G2year) %>%
+  summarise_at(vars(xcCO3), mean, na.rm = TRUE)
+
+final_xcCO3_error_NN <- xcCO3_NN %>%
+  group_by(G2year) %>%
+  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+
+# Computing the mean xcCO3 and error of the mean per year for the GLODAP data set
+final_xcCO3_G2 <- only_xcCO3_G2 %>%
+  group_by(G2year) %>%
+  summarise_at(vars(xcCO3), mean, na.rm = TRUE)
+
+final_xcCO3_error_G2 <- only_xcCO3_G2 %>%
   group_by(G2year) %>%
   summarise_at(vars(xcCO3), sd, na.rm = TRUE)
 ```
 
 ```{r Linear model for xcCO3}
 
+# Linear model for the whole data set
 RLMmodel_xcCO3 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3, weights = (1 / final_xcCO3_error$xcCO3))
 
 tableRLMmodel_xcCo3 <- summary(RLMmodel_xcCO3)
@@ -333,17 +396,42 @@ pvalue_xcCO3 <- pnorm(
   abs(
     broom::tidy(RLMmodel_xcCO3)
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+# Linear model for the NN data set
+RLMmodel_xcCO3_NN <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_NN, weights = (1 / final_xcCO3_error_NN$xcCO3))
+
+tableRLMmodel_xcCo3_NN <- summary(RLMmodel_xcCO3_NN)
+trend_xcCo3_NN <- tableRLMmodel_xcCo3_NN[["coefficients"]][2, 1]  # This is the rate of change
+etrend_xcCo3_NN <- tableRLMmodel_xcCo3_NN[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalue_xcCO3_NN <- pnorm(
+  abs(
+    broom::tidy(RLMmodel_xcCO3_NN)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+# Linear model for the GLODAP data set
+RLMmodel_xcCO3_G2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_G2, weights = (1 / final_xcCO3_error_G2$xcCO3))
+
+tableRLMmodel_xcCo3_G2 <- summary(RLMmodel_xcCO3_G2)
+trend_xcCo3_G2 <- tableRLMmodel_xcCo3_G2[["coefficients"]][2, 1]  # This is the rate of change
+etrend_xcCo3_G2 <- tableRLMmodel_xcCo3_G2[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalue_xcCO3_G2 <- pnorm(
+  abs(
+    broom::tidy(RLMmodel_xcCO3_G2)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 ```
 
 ```{r Plot trend xcCO3}
 
 ggplot(final_xcCO3, aes(G2year, xcCO3)) +
-  geom_jitter(data = extended_xcCO3, aes(colour = source), alpha = .7, shape = 4, size = .3) +
+  geom_jitter(data = xcCO3, aes(colour = source), alpha = .7, shape = 4, size = .3) +
   geom_smooth(method = MASS::rlm, color = "red", size = 2) +
   geom_point() +
   theme_minimal() +
   xlab("Year")
 ```
+
 # PM trends step 5 - Plots
 ```{r Map with stations}
 
@@ -354,43 +442,63 @@ stations <- A %>%
   select(G2longitude, G2latitude, G2year) %>%
   distinct(G2longitude, G2latitude, .keep_all = TRUE)
 
-# Error in if (ncol(x) == 3 & !exists("bathy", inherits = FALSE)) { : argument is of length zero
 m <- getNOAA.bathy(lon1 = ABasin[1, 1] - 4, lon2 = ABasin[2, 1] + 5,  # -4 and +5 what does it mean?
-                     lat1 = ABasin[1, 2] -5 , lat2 = ABasin[2, 2] + 3, resolution = 1)  # -5 and +3 # 1 is the smallest 
+                     lat1 = ABasin[1, 2] -5 , lat2 = ABasin[2, 2] + 3, resolution = 1)  # 1 is the finest
 
-(basemap <- ggplot(m, aes(x = x, y = y)) + 
+(basemap <- ggplot(m, aes(x = x, y = y)) +  # when just working with shapes, the map gets really confusing... Should I add colors on top of that or is there a better solution. 22 stations are quite a bit
     coord_quickmap() +
     geom_raster(aes(fill = z)) +
     scale_fill_gradient2(low = "cadetblue1", mid = "white", high = "darkgreen", midpoint = 0, guide = F) +
-    geom_contour(aes(z = z), breaks = c(-1000, -2000, -3000, -4000, -5000), colour = "gray", size = 0.5) +  # depth only between 100 and 500? what breaks?
+    geom_contour(aes(z = z), breaks = c(-1000, -2000, -3000, -4000, -5000), colour = "gray", size = 0.5) +
     geom_contour(aes(z = z), breaks = c(0), colour = "black", size = 1) +
-    # can I simply put the years from my data in?
-    geom_point(data = stations[stations$G2year == 1981, ], aes(x = G2longitude, y = G2latitude),  
-               color = "#fc9272", size = 4) + 
-    geom_point(data = stations[stations$G2year == 1982, ], aes(x = G2longitude, y = G2latitude), 
-               color = "#fb6a4a", size = 4) + 
-    geom_point(data = stations[stations$G2year == 1984, ], aes(x = G2longitude, y = G2latitude), 
-               color = "#ef3b2c", size = 4) + 
-    geom_point(data = stations[stations$G2year == 1986, ], aes(x = G2longitude, y = G2latitude), 
-               color = "#cb181d", size = 4) + 
-    geom_point(data = stations[stations$G2year == 1988, ], aes(x = G2longitude, y = G2latitude), 
-               color = "#99000d", size = 4) + 
-    geom_point(data = stations[stations$G2year == 1989, ], aes(x = G2longitude, y = G2latitude), 
-               color = "black", size = 4, shape = 17) +
-    geom_point(data = stations[stations$G2year == 1991, ], aes(x = G2longitude, y = G2latitude), 
-               color = "#1f78b4", size = 4, shape = 6) +
-    geom_point(data = stations[stations$G2year == 1993, ], aes(x = G2longitude, y = G2latitude), 
-               color = "chartreuse4", size = 4, shape = 9) +
-    geom_point(data = stations[stations$G2year == 1997, ], aes(x = G2longitude, y = G2latitude), 
-               color = "#fdbf6f", size = 4, shape = 8) +
-    geom_point(data = stations[stations$G2year == 2001, ], aes(x = G2longitude, y = G2latitude),  # what other shapes should I use?
-               color = "#6a3d9a", size = 4, shape = 18) +
+    geom_point(data = stations[stations$G2year == 1981, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 1) +
+    geom_point(data = stations[stations$G2year == 1982, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 2) +
+    geom_point(data = stations[stations$G2year == 1984, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 3) +
+    geom_point(data = stations[stations$G2year == 1986, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 4) +
+    geom_point(data = stations[stations$G2year == 1988, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 5) +
+    geom_point(data = stations[stations$G2year == 1989, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 6) +
+    geom_point(data = stations[stations$G2year == 1991, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 7) +
+    geom_point(data = stations[stations$G2year == 1993, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 8) +
+    geom_point(data = stations[stations$G2year == 1997, ], aes(x = G2longitude, y = G2latitude),
+               size = 3, shape = 9) +
+    geom_point(data = stations[stations$G2year == 2001, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 10) +
+    geom_point(data = stations[stations$G2year == 2002, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 11) +
+    geom_point(data = stations[stations$G2year == 2003, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 12) +
+    geom_point(data = stations[stations$G2year == 2004, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 13) +
+    geom_point(data = stations[stations$G2year == 2005, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 14) +
+    geom_point(data = stations[stations$G2year == 2006, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 15) +
+    geom_point(data = stations[stations$G2year == 2008, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 16) +
+    geom_point(data = stations[stations$G2year == 2010, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 17) +
+    geom_point(data = stations[stations$G2year == 2011, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 18) +
+    geom_point(data = stations[stations$G2year == 2012, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 19) +
+    geom_point(data = stations[stations$G2year == 2013, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 20) +
+    geom_point(data = stations[stations$G2year == 2014, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 21) +
+    geom_point(data = stations[stations$G2year == 2016, ], aes(x = G2longitude, y = G2latitude), 
+               size = 3, shape = 22) +
     scale_shape_manual(values = seq(15, 25)) +  # what does this line do?
-    # scale_x_continuous(expand = c(0,0), breaks = c(-30, -40, -50, -60),  # need to adjust 
-    #                    labels = c("30ºW", "40ºW", "50ºW", "60ºW")) +
-    # scale_y_continuous(expand = c(0,0), breaks = c(-30, -35, -40, -45, -50), 
-    #                    labels = c("30ºS", "35ºS", "40ºS", "45ºS", "50ºS")) +
-    # labs(x = "", y = "") +
+    scale_x_continuous(breaks = c(-5, -10, -15), labels = c("5ºW", "10ºW", "15ºW")) +  
+    scale_y_continuous(breaks = c(35, 40, 45), labels = c("35ºN", "40ºN", "45ºN")) + 
+    labs(x = "", y = "") +
     theme(
       panel.border = element_rect(colour = "black", fill = NA, size = 4),
       text = element_text(size = 28, colour = "black"),
@@ -409,5 +517,11 @@ if (abrirfigura) {
 }
 
 print(paste("Done in", ceiling(Sys.time() - t0)))
+```
+
+# PM trends step 6 - Tables
+```{r Table with trends}
+
+
 ```
 
