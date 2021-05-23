@@ -1,6 +1,6 @@
 ---
 title: "Ocean acidification in the continental margin off Portugal: filling gaps with old data"
-author: "Nils Lucas Jacobsen"
+author: "Nils Lucas Jacobsen, Marcos Fontela"
 date: "`r format(Sys.time(), '%d %B, %Y')`"  # With Sys.Date it updates automatically
 output: 
   html_document:
@@ -12,13 +12,9 @@ output:
 ```{r setup, include = FALSE}
 
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
-```
-
-# PM trends step 0 - Packages
-```{r installing and loading packages}
 
 # This step installs packages if needed
-list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "rgdal", "raster", "seacarb", "xlsx", "reshape2", "readr", "lubridate")
+list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "rgdal", "raster", "seacarb", "xlsx", "reshape2", "readr", "lubridate", "stargazer")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 
@@ -35,6 +31,7 @@ library(xlsx)
 library(reshape2)
 library(readr)
 library(lubridate)
+library(stargazer)
 ```
 
 # PM trends step 1 - Preparation, carbon computations, and preliminary analysis
@@ -72,7 +69,7 @@ A <- A %>%
 # A$layer <- factor(A$layer, levels = ord)
 ```
 
-## Carbon computations
+### Carbon computations
 ```{r Carbon computations}
 
 A <- A %>%  # Adding flags for seacarb
@@ -101,7 +98,7 @@ A <- mutate(A, xcCO3 = CO3 - (CO3 / OmegaAragonite))  # Compute xcCO3
 A <- filter(A, !is.na(flag))
 ```
 
-## Add country & dates
+### Add country & dates
 ```{r Adding country & dates}
 
 wtf = expocodes[expocodes$expocodeno %in% sort(unique(A$G2cruise)), ]
@@ -276,6 +273,7 @@ pvalue_pH_G2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 ```
 
+Method: The data-set used for the pH analysis consists of the combined data taken from GLODAP, ICES, as well as the "rescued" data from the old cruises in the Portuguese Margin. [pH values were already included before the NN, correct?] pH is represented on the total scale and at in situ temperature and pressure. Very low pH-values below 7.9 were excluded, since freshwater influence is very likely in those cases. As before, only data points below 100 m, in order to avoid seasonal variation, and above 500 m, due to too little available data below that depth, were included in the study. Mean pH and standard deviation per year were computed for the complete data set (GLODAP, ICES, and OldPT), GLODAP data alone, and for the neural network data (ICES and OldPT) [not sure how to call this data set since the pH was given before]. Using these means and standard deviations, we applied a robust linear model, with the "rlm" function from the R package "MASS", to compute the pH trends, as well as the error of the trends. The associated p-values were computed with the "pnorm" function. 
 ```{r Plot trend pH}
 
 ggplot(final_pH, aes(G2year, pH)) +
@@ -285,11 +283,13 @@ ggplot(final_pH, aes(G2year, pH)) +
   theme_minimal() +
   xlab("Year")
 ```
+Result: Figure 3 shows the pH trend between 1971 and 2016 in surface and subsurface waters (100 m - 500 m) of the Portuguese Margin. The measurements are coloured according to their source, GLODAP in red, ICES in green, and old cruise data in blue. The black points represent the means of each year. [Should I add the min and max value of the trend? If yes, how can I find them?] The pH value decreased steadily at a rate of -0.0017 ± 0.0002 per year. The associated p-value is 1.374335e-12 [R automatically rounded the value, is that okay?] Through adding the pH values from the "rescued" old cruise data, we were able to fill knowledge gaps and increase the time frame of the linear model by about one decade. [There are three data points from ICES in 1971, is the statement before still true?]
+Using only the data from GLODAP, a negative trend of -0.0012 ± 0.0002 was computed (p-value = 2.277422e-11). For the neural network data the trend was -0.0017 ± 0.0009 with a p-value of 0.04876432. [pretty high p-value, how should I treat this?] 
 
 # PM trends step 3 - Trend analysis anthropogenic carbon
 ```{r Computing mean Cant per year}
 
-Cant <- read.csv("Cant.csv")
+Cant <- read.csv("Cant_source.csv")
 
 only_Cant <- Cant %>% 
   filter(latitude >= (min(ABasin$lat)) & latitude <= (max(ABasin$lat))) %>%
@@ -297,8 +297,12 @@ only_Cant <- Cant %>%
   mutate_all(.funs = funs(ifelse(. == "NaN", NA, .))) %>%
   filter(between(Depth, 100, 500)) %>%
   filter(!is.na(cAntPhiCt0ML)) %>%
-  select(year, cAntPhiCt0ML)
+  select(year, cAntPhiCt0ML, source)
 
+##### need to rename the variables #####
+# colnames(only_Cant$source)[colnames(only_Cant$source) == "G2"] <- "GLODAP"
+
+# complete data set
 final_Cant <- only_Cant %>%
   group_by(year) %>%
   summarise_at(vars(cAntPhiCt0ML), mean, na.rm = TRUE)
@@ -306,10 +310,33 @@ final_Cant <- only_Cant %>%
 final_Cant_error <- only_Cant %>%
   group_by(year) %>%
   summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+
+# Neural network data
+final_Cant_NN <- only_Cant %>%
+  filter(source == "PT" | source == "IC") %>%
+  group_by(year) %>%
+  summarise_at(vars(cAntPhiCt0ML), mean, na.rm = TRUE)
+
+final_Cant_error_NN <- only_Cant %>%
+  filter(source == "PT" | source == "IC") %>%
+  group_by(year) %>%
+  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+
+# GLODAP data
+final_Cant_G2 <- only_Cant %>%
+  filter(source == "G2") %>%
+  group_by(year) %>%
+  summarise_at(vars(cAntPhiCt0ML), mean, na.rm = TRUE)
+
+final_Cant_error_G2 <- only_Cant %>%
+  filter(source == "G2") %>%
+  group_by(year) %>%
+  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
 ```
 
 ```{r Linear model for Cant}
 
+# Complete data set
 RLMmodel_Cant <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant, weights = (1 / final_Cant_error$cAntPhiCt0ML))
 
 tableRLMmodel_Cant <- summary(RLMmodel_Cant)
@@ -320,12 +347,36 @@ pvalue_Cant <- pnorm(
   abs(
     broom::tidy(RLMmodel_Cant)
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+# Neural network data
+RLMmodel_Cant_NN <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_NN, weights = (1 / final_Cant_error_NN$cAntPhiCt0ML))
+
+tableRLMmodel_Cant_NN <- summary(RLMmodel_Cant_NN)
+trend_Cant_NN <- tableRLMmodel_Cant_NN[["coefficients"]][2, 1]  # This is the rate of change
+etrend_Cant_NN <- tableRLMmodel_Cant_NN[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalue_Cant_NN <- pnorm(
+  abs(
+    broom::tidy(RLMmodel_Cant_NN)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+
+# GLODAP data
+RLMmodel_Cant_G2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_G2, weights = (1 / final_Cant_error_G2$cAntPhiCt0ML))
+
+tableRLMmodel_Cant_G2 <- summary(RLMmodel_Cant_G2)
+trend_Cant_G2 <- tableRLMmodel_Cant_G2[["coefficients"]][2, 1]  # This is the rate of change
+etrend_Cant_G2 <- tableRLMmodel_Cant_G2[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+
+pvalue_Cant_G2 <- pnorm(
+  abs(
+    broom::tidy(RLMmodel_Cant_G2)
+    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 ```
 
 ```{r Plot trend Cant}
 
 ggplot(final_Cant, aes(year, cAntPhiCt0ML)) +
-  geom_jitter(data = only_Cant, alpha = .7, shape = 4, size = .3) +
+  geom_jitter(data = only_Cant, aes(colour = source), alpha = .7, shape = 4, size = .3) +
   geom_smooth(method = MASS::rlm, color = "red", size = 2) +
   geom_point() +
   theme_minimal() +
@@ -518,13 +569,35 @@ abrirfigura = 0
 if (abrirfigura) {
   shell.exec("PMtrends_map.pdf")
 }
-
-print(paste("Done in", ceiling(Sys.time() - t0)))
 ```
 
 # PM trends step 6 - Tables
-```{r Table with trends}
+```{r Table with trends, results = "asis"}
 
+trend_array <- c(trend_pH, trend_Cant, trend_xcCo3)
+error_array <- c(etrend_pH, etrend_Cant, etrend_xcCo3)
+pvalue_array <- c(pvalue_pH, pvalue_Cant, pvalue_xcCO3)
 
+trend_array_G2 <- c(trend_pH_G2, trend_Cant_G2, trend_xcCo3_G2)
+error_array_G2 <- c(etrend_pH_G2, etrend_Cant_G2, etrend_xcCo3_G2)
+pvalue_array_G2 <- c(pvalue_pH_G2, pvalue_Cant_G2, pvalue_xcCO3_G2)
+
+trend_array_NN <- c(trend_pH_NN, trend_Cant_NN, trend_xcCo3_NN)
+error_array_NN <- c(etrend_pH_NN, etrend_Cant_NN, etrend_xcCo3_NN)
+pvalue_array_NN <- c(pvalue_pH_NN, pvalue_Cant_NN, pvalue_xcCO3_NN)
+
+cols <- c("Trend", "Error", "p-value", "Trend", "Error", "p-value", "Trend", "Error", "p-value")
+rows <- c("pH", "Cant", "xcCO3")
+
+data_matrix <-
+  matrix(
+    data = c(trend_array, error_array, pvalue_array, trend_array_G2, error_array_G2, pvalue_array_G2, 
+             trend_array_NN, error_array_NN, pvalue_array_NN),
+    nrow = 3,
+    ncol = 9,
+    dimnames = list(rows, cols)
+  )
+
+stargazer(data_matrix, type = "html", column.labels = c("Trends total", "Trends GLODAP", "Trends without GLODAP"), column.separate = c(3, 3, 3))
 ```
 
