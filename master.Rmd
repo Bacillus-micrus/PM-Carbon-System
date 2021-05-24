@@ -274,7 +274,7 @@ pvalue_pH_G2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 ```
 
-Method: The data-set used for the pH analysis consists of the combined data taken from GLODAP, ICES, as well as the "rescued" data from the old cruises in the Portuguese Margin. [pH values were already included before the NN, correct?] pH is represented on the total scale and at in situ temperature and pressure. Very low pH-values below 7.9 were excluded, since freshwater influence is very likely in those cases. As before, only data points below 100 m, in order to avoid seasonal variation, and above 500 m, due to too little available data below that depth, were included in the study. Mean pH and standard deviation per year were computed for the complete data set (GLODAP, ICES, and OldPT), GLODAP data alone, and for the neural network data (ICES and OldPT) [not sure how to call this data set since the pH was given before]. Using these means and standard deviations, we applied a robust linear model, with the "rlm" function from the R package "MASS", to compute the pH trends, as well as the error of the trends. The associated p-values were computed with the "pnorm" function. 
+Method: The data-set used for the pH analysis consists of the combined data taken from GLODAP, ICES, as well as the "rescued" data from the old cruises in the Portuguese Margin. pH is represented on the total scale and at in situ temperature and pressure. Very low pH-values below 7.9 were excluded, since freshwater influence is very likely in those cases. As before, only data points below 100 m, in order to avoid seasonal variation, and above 500 m, due to sample constraint in the OldPT data set, were included in the study. Mean pH and standard deviation per year were computed for the complete data set (GLODAP, ICES, and OldPT), GLODAP data alone, and for the modelled data (ICES and OldPT). Using these means and standard deviations, we applied a robust linear model, with the "rlm" function from the R package "MASS", to compute the pH trends, as well as the error of the trends. The associated p-values were computed with the "pnorm" function. 
 ```{r Plot trend pH}
 
 ggplot(final_pH, aes(G2year, pH)) +
@@ -284,13 +284,17 @@ ggplot(final_pH, aes(G2year, pH)) +
   theme_minimal() +
   xlab("Year")
 ```
-Result: Figure 3 shows the pH trend between 1971 and 2016 in surface and subsurface waters (100 m - 500 m) of the Portuguese Margin. The measurements are coloured according to their source, GLODAP in red, ICES in green, and old cruise data in blue. The black points represent the means of each year. [Should I add the min and max value of the trend? If yes, how can I find them?] The pH value decreased steadily at a rate of -0.0017 ± 0.0002 per year. The associated p-value is 1.374335e-12 [R automatically rounded the value, is that okay?] Through adding the pH values from the "rescued" old cruise data, we were able to fill knowledge gaps and increase the time frame of the linear model by about one decade. [There are three data points from ICES in 1971, is the statement before still true?]
-Using only the data from GLODAP, a negative trend of -0.0012 ± 0.0002 was computed (p-value = 2.277422e-11). For the neural network data the trend was -0.0017 ± 0.0009 with a p-value of 0.04876432. [pretty high p-value, how should I treat this?] 
+Result: Figure 3 shows the pH trend between 1971 and 2016 in subsurface waters (100 m - 500 m) of the Portuguese Margin. The measurements are coloured according to their source, GLODAP in red, ICES in green, and old cruise data in blue. The black points represent the means of each year. [Should I add the min and max value of the trend? If yes, how can I find them?] The pH value decreased steadily at a rate of -0.0017 ± 0.0002 per year. The associated p-value is 1.4e-12. Through adding the pH values from the "rescued" old cruise data, we were able to fill knowledge gaps and increase the time frame of the linear model by about one decade.
+Using only the data from GLODAP, a negative trend of -0.0012 ± 0.0002 was computed (p-value = 2.3e-11). For the neural network data the trend was -0.0017 ± 0.0009 with a p-value of 0.04876432.
 
 # PM trends step 3 - Trend analysis anthropogenic carbon
 ```{r Computing mean Cant per year}
 
 Cant <- read.csv("Cant_source.csv")
+
+Cant$source[Cant$source == "PT"] = "OldPT"
+Cant$source[Cant$source == "G2"] = "GLODAP"
+Cant$source[Cant$source == "IC"] = "ICES"
 
 only_Cant <- Cant %>% 
   filter(latitude >= (min(ABasin$lat)) & latitude <= (max(ABasin$lat))) %>%
@@ -314,23 +318,23 @@ final_Cant_error <- only_Cant %>%
 
 # Neural network data
 final_Cant_NN <- only_Cant %>%
-  filter(source == "PT" | source == "IC") %>%
+  filter(source == "OldPT" | source == "ICES") %>%
   group_by(year) %>%
   summarise_at(vars(cAntPhiCt0ML), mean, na.rm = TRUE)
 
 final_Cant_error_NN <- only_Cant %>%
-  filter(source == "PT" | source == "IC") %>%
+  filter(source == "OldPT" | source == "ICES") %>%
   group_by(year) %>%
   summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
 
 # GLODAP data
 final_Cant_G2 <- only_Cant %>%
-  filter(source == "G2") %>%
+  filter(source == "GLODAP") %>%
   group_by(year) %>%
   summarise_at(vars(cAntPhiCt0ML), mean, na.rm = TRUE)
 
 final_Cant_error_G2 <- only_Cant %>%
-  filter(source == "G2") %>%
+  filter(source == "GLODAP") %>%
   group_by(year) %>%
   summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
 ```
