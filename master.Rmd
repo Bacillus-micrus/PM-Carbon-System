@@ -1,5 +1,5 @@
 ---
-title: "Ocean acidification in the continental margin off Portugal: filling gaps with old data"
+title: "Ocean acidification in the continental margin of Portugal: filling gaps with old data"
 author: "Nils Lucas Jacobsen, Marcos Fontela"
 date: "`r format(Sys.time(), '%d %B, %Y')`"  # With Sys.Date it updates automatically
 output: 
@@ -131,27 +131,28 @@ A <- mutate(A, date = lubridate::ymd(paste(A$G2year, A$G2month, A$G2day, sep = "
   ggplot(A, aes(x = country)) +
     geom_bar(aes(fill = country)) +
     scale_fill_brewer(type = "qual", palette = "Set1") +
-    labs(x = "Country", y = "number of samples", 
-         title = "Samples with carbon system in GLODAP near Portugal margin") +
+    labs(x = "Country", y = "Number of samples") +
     theme_minimal()
   
   ggplot(A, aes(x = G2year)) +
     geom_histogram(aes(fill = country), alpha = .5) +
-    labs(x = "Year", y = "number of samples", 
-         title = "Samples with carbon system in GLODAP near Portugal margin") +
+    scale_fill_brewer(type = "qual", palette = "Set1") +
+    labs(x = "Year", y = "Number of samples") +
     theme_minimal()
   
   A %>%
     filter(G2depth < 500) %>%
     ggplot(., aes(G2year, DIC * 10^6)) + 
     geom_point() + 
-    geom_smooth(method = "lm")
+    geom_smooth(method = "lm") +
+    labs(x = "Year", y = "DIC [μmol/kg]")
   
   A %>%
     filter(G2depth < 500) %>%
     ggplot(., aes(G2year, pH)) + 
     geom_point() + 
-    geom_smooth(method = "lm")
+    geom_smooth(method = "lm") +
+    labs(x = "Year")
 ```
 
 ```{r Adding atmospheric data}
@@ -483,7 +484,7 @@ ggplot(final_xcCO3, aes(G2year, xcCO3)) +
   geom_smooth(method = MASS::rlm, color = "red", size = 2) +
   geom_point() +
   theme_minimal() +
-  xlab("Year")
+  labs(x = "Year", y = "xcCO3 [μmol/kg]")
 ```
 
 # PM trends step 5 - Plots
@@ -572,7 +573,7 @@ if (abrirfigura) {
 ```
 
 # PM trends step 6 - Tables
-```{r Table with trends, results = "asis"}
+```{r Table with trends}
 
 trend_array <- c(trend_pH, trend_Cant, trend_xcCo3)
 error_array <- c(etrend_pH, etrend_Cant, etrend_xcCo3)
@@ -597,7 +598,5 @@ data_matrix <-
     ncol = 9,
     dimnames = list(rows, cols)
   )
-
-stargazer(data_matrix, type = "html", column.labels = c("Trends total", "Trends GLODAP", "Trends without GLODAP"), column.separate = c(3, 3, 3))
 ```
 
