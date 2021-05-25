@@ -284,8 +284,8 @@ ggplot(final_pH, aes(G2year, pH)) +
   theme_minimal() +
   xlab("Year")
 ```
-Result: Figure 3 shows the pH trend between 1971 and 2016 in subsurface waters (100 m - 500 m) of the Portuguese Margin. The measurements are coloured according to their source, GLODAP in red, ICES in green, and old cruise data in blue. The black points represent the means of each year. [Should I add the min and max value of the trend? If yes, how can I find them?] The pH value decreased steadily at a rate of -0.0017 ± 0.0002 per year. The associated p-value is 1.4e-12. Through adding the pH values from the "rescued" old cruise data, we were able to fill knowledge gaps and increase the time frame of the linear model by about one decade.
-Using only the data from GLODAP, a negative trend of -0.0012 ± 0.0002 was computed (p-value = 2.3e-11). For the neural network data the trend was -0.0017 ± 0.0009 with a p-value of 0.04876432.
+Result: Figure 3 shows the pH trend between 1971 and 2016 in subsurface waters (100 m - 500 m) of the Portuguese Margin. The measurements are coloured according to their source, GLODAP in red, ICES in green, and old cruise data in blue. The black points represent the means of each year. [Should I add the min and max value of the trend? If yes, how can I find them?] The pH value decreased steadily at a rate of -0.0017 ± 0.0002 per year. The associated p-value is < 0.05. Through adding the pH values from the "rescued" old cruise data, we were able to fill knowledge gaps and increase the time frame of the linear model by about one decade.
+Using only the data from GLODAP, a negative trend of -0.0012 ± 0.0002 was computed (p-value < 0.05). For the neural network data the trend was -0.0017 ± 0.0009 with a p-value < 0.05.
 
 # PM trends step 3 - Trend analysis anthropogenic carbon
 ```{r Computing mean Cant per year}
@@ -594,13 +594,13 @@ pvalue_array_NN <- c(pvalue_pH_NN, pvalue_Cant_NN, pvalue_xcCO3_NN)
 cols <- c("Trend", "Error", "p-value", "Trend", "Error", "p-value", "Trend", "Error", "p-value")
 rows <- c("pH", "Cant", "xcCO3")
 
-data_matrix <-
+(trend_matrix <-
   matrix(
     data = c(trend_array, error_array, pvalue_array, trend_array_G2, error_array_G2, pvalue_array_G2, 
              trend_array_NN, error_array_NN, pvalue_array_NN),
     nrow = 3,
     ncol = 9,
     dimnames = list(rows, cols)
-  )
+  ))
 ```
 
