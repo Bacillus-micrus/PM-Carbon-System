@@ -504,8 +504,8 @@ stations <- A %>%
 m <- getNOAA.bathy(lon1 = ABasin[1, 1] - 4, lon2 = ABasin[2, 1] + 5,  # -4 and +5 what does it mean?
                      lat1 = ABasin[1, 2] -5 , lat2 = ABasin[2, 2] + 3, resolution = 1)  # 1 is the finest
 
-(basemap <- ggplot(m, aes(x = x, y = y)) +  # when just working with shapes, the map gets really confusing... Should I add colors on top of that or is there a better solution. 22 stations are quite a bit
-    coord_quickmap() +
+(basemap <- ggplot(m, aes(x = x, y = y)) +  # when just working with shapes, the map gets really confusing... Should I add colours on top of that or is there a better solution. 22 stations are quite a bit
+    coord_quickmap(xlim = c(-13, -7), ylim = c(36, 42)) +
     geom_raster(aes(fill = z)) +
     scale_fill_gradient2(low = "cadetblue1", mid = "white", high = "darkgreen", midpoint = 0, guide = F) +
     geom_contour(aes(z = z), breaks = c(-1000, -2000, -3000, -4000, -5000), colour = "gray", size = 0.5) +
@@ -555,12 +555,12 @@ m <- getNOAA.bathy(lon1 = ABasin[1, 1] - 4, lon2 = ABasin[2, 1] + 5,  # -4 and +
     geom_point(data = stations[stations$G2year == 2016, ], aes(x = G2longitude, y = G2latitude), 
                size = 3, shape = 22) +
     scale_shape_manual(values = seq(15, 25)) +  # what does this line do?
-    scale_x_continuous(breaks = c(-5, -10, -15), labels = c("5ºW", "10ºW", "15ºW")) +  
-    scale_y_continuous(breaks = c(35, 40, 45), labels = c("35ºN", "40ºN", "45ºN")) + 
+    scale_x_continuous(breaks = c(-8, -10, -12), labels = c("8ºW", "10ºW", "12ºW")) +  
+    scale_y_continuous(breaks = c(36, 38, 40, 42), labels = c("36ºN", "38ºN", "40ºN", "42ºN")) + 
     labs(x = "", y = "") +
     theme(
-      panel.border = element_rect(colour = "black", fill = NA, size = 4),
-      text = element_text(size = 28, colour = "black"),
+      panel.border = element_rect(colour = "black", fill = NA, size = 3),
+      text = element_text(size = 24, colour = "black"),
       legend.title = element_blank())
 )
 
@@ -602,5 +602,27 @@ rows <- c("pH", "Cant", "xcCO3")
     ncol = 9,
     dimnames = list(rows, cols)
   ))
+```
+
+```{r Work in progress}
+
+# Checking for duplicate data (GLODAP & ICES): get distinct combinations of lat, lon & year, plot stations, and colour by source
+G2_check <- A %>% select(latitude = G2latitude, longitude = G2longitude, year = G2year, source) %>%
+  distinct(latitude, longitude, year, .keep_all = TRUE)
+
+ICES_check <- postNN_ICES %>% select(latitude = Latitudedegrees_north, longitude = Longitudedegrees_east, year, source) %>%
+  distinct(latitude, longitude, year, .keep_all = TRUE)
+
+check <- rbind(G2_check, ICES_check)
+
+ggplot(check, aes(longitude, latitude, colour = source)) +
+  geom_point(alpha = .7)
+
+check2 <- distinct(check, latitude, longitude, year, .keep_all = TRUE)  # Has the same number of rows as the check data frame, therefore no duplicate data
+
+# Creating the zone variable based on latitude
+A$zone <- ifelse(A$G2latitude > 40.1, "zone1",
+                 ifelse(A$G2latitude < 40.1 & A$G2latitude > 37.2, "zone2",
+                    ifelse(A$G2latitude < 37.2, "zone3", NA)))
 ```
 
