@@ -107,6 +107,36 @@ A <- filter(A, !is.na(flag))
 # A$pH <- as.integer(A$pH)
 ```
 
+```{r Carbon error computations}
+
+carb_errors <- seacarb::errors(flag = A$flag, 
+                          var1 = ifelse(A$flag == 15, A$G2talk / 10^6, 
+                                      ifelse(A$flag == 9, A$G2phtsinsitutp,
+                                             ifelse(A$flag == 8, A$G2phtsinsitutp, NA))),
+                          var2 = ifelse(A$flag == 15, A$G2tco2 / 10^6, 
+                                      ifelse(A$flag == 9, A$G2tco2 / 10^6,
+                                             ifelse(A$flag == 8, A$G2talk / 10^6, NA))),
+                          A$G2salinity, 
+                          A$G2theta, 
+                          A$G2pressure / 10,  # Pressure in bar!
+                          Patm = 1.0, 
+                          Pt = A$G2phosphate / 10^6,  # Nutrients in mols/Kg
+                          Sit = A$G2silicate / 10^6,
+                          evar1 = ifelse(A$flag == 15, 2/10^6, 
+                                      ifelse(A$flag == 9, 0.0055,
+                                             ifelse(A$flag == 8, 0.0055, 0))),
+                          evar2 = ifelse(A$flag == 15, 2/10^6, 
+                                      ifelse(A$flag == 9, 2/10^6,
+                                             ifelse(A$flag == 8, 2/10^6, 0))),
+                          pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74")
+
+# rename columns, and join to the main data.frame
+carb_errors <- carb_errors %>%
+  rename(eH = H, epH = pH, eCO2 = CO2, efCO2 = fCO2, epCO2 = pCO2, eHCO3 = HCO3, eCO3 = CO3, eDIC = DIC, eALK = ALK, eOmegaAragonite = OmegaAragonite, eOmegaCalcite = OmegaCalcite)
+
+A <- bind_cols(A, carb_errors)
+```
+
 ### Add country & dates
 ```{r Adding country & dates}
 
@@ -224,72 +254,70 @@ postNN_ICES$zone <- ifelse(postNN_ICES$Latitudedegrees_north > 40.1, "zone1",
 
 ```{r Function for pH rlm}
 
-only_pH_OldPT <- postNN_OldPT %>%  # A new data.frame from the loaded csv (and we keep it intact as postNN*)
-  filter(between(depth, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
-  filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
-  select(G2year, pH, source, country, zone)  # Clean it all
-  
-# ICES data (The same for the ICES data)
-only_pH_ICES <- postNN_ICES %>%
-  filter(between(PRESdb, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
-  filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
-  select(G2year, pH, source, country, zone)  # Clean it all
-
-# Again for the GLODAP data
-only_pH_G2 <- A %>%
-  filter(between(G2depth, 100, 500)) %>%
-  select(G2year, pH, source, country, zone)
-
-# Joining the three data.frames
-pH_NN <- full_join(only_pH_OldPT, only_pH_ICES)
-pH <- full_join(pH_NN, only_pH_G2)  # 2-step join
-
-
-list <- list(pH, pH_NN, only_pH_G2)  # my idea here is to create a custom function and apply it with lapply to all the data combinations automatically
-
-rlm_pH_fun <- function(data) {
-
-final_pH <- data %>%
-  group_by(G2year) %>%
-  summarise_at(vars(data), mean, na.rm = TRUE)
-
-final_pH_error <- data %>%
-  group_by(G2year) %>%
-  summarise_at(vars(data), sd, na.rm = TRUE)
-
-RLMmodel_pH <- MASS::rlm(pH ~ G2year, data = final_pH, weights = (1 / final_pH_error$pH))
-tableRLMmodel_pH <- summary(RLMmodel_pH)
-trend_pH <- tableRLMmodel_pH[["coefficients"]][2, 1]  # This is the rate of change
-etrend_pH <- tableRLMmodel_pH[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
-
-pvalue_pH <- pnorm(
-  abs(
-    broom::tidy(RLMmodel_pH)
-    [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
-}
-
-result <- lapply(purrr::map(list, "G2year", "pH"), rlm_pH_fun)  # map is used to subset all elements in the list for G2year and pH
-
+# only_pH_OldPT <- postNN_OldPT %>%  # A new data.frame from the loaded csv (and we keep it intact as postNN*)
+#   filter(between(depth, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
+#   filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
+#   select(G2year, pH, source, country, zone)  # Clean it all
+#   
+# # ICES data (The same for the ICES data)
+# only_pH_ICES <- postNN_ICES %>%
+#   filter(between(PRESdb, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
+#   filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
+#   select(G2year, pH, source, country, zone)  # Clean it all
+# 
+# # Again for the GLODAP data
+# only_pH_G2 <- A %>%
+#   filter(between(G2depth, 100, 500)) %>%
+#   select(G2year, pH, source, country, zone)
+# 
+# # Joining the three data.frames
+# pH_NN <- full_join(only_pH_OldPT, only_pH_ICES)
+# pH <- full_join(pH_NN, only_pH_G2)  # 2-step join
+# 
+# 
+# list <- list(pH, pH_NN, only_pH_G2)  # my idea here is to create a custom function and apply it with lapply to all the data combinations automatically
+# 
+# rlm_pH_fun <- function(data) {
+# 
+# final_pH <- data %>%
+#   group_by(G2year) %>%
+#   summarise_at(vars(data), mean, na.rm = TRUE)
+# 
+# final_pH_error <- data %>%
+#   group_by(G2year) %>%
+#   summarise_at(vars(data), sd, na.rm = TRUE)
+# 
+# RLMmodel_pH <- MASS::rlm(pH ~ G2year, data = final_pH, weights = (1 / final_pH_error$pH))
+# tableRLMmodel_pH <- summary(RLMmodel_pH)
+# trend_pH <- tableRLMmodel_pH[["coefficients"]][2, 1]  # This is the rate of change
+# etrend_pH <- tableRLMmodel_pH[["coefficients"]][2, 2]  # etrend stands for "error in the trend"
+# 
+# pvalue_pH <- pnorm(
+#   abs(
+#     broom::tidy(RLMmodel_pH)
+#     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
+# }
+# 
+# result <- lapply(purrr::map(list, "G2year", "pH"), rlm_pH_fun)  # map is used to select the columns G2year and pH of all elements in the list
 ```
-
 
 ```{r Computing mean pH with NN data}
 
 only_pH_OldPT <- postNN_OldPT %>%  # A new data.frame from the loaded csv (and we keep it intact as postNN*)
   filter(between(depth, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
   filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
-  select(G2year, pH, source, country, zone)  # Clean it all
+  select(G2year, pH, source, zone)  # Clean it all
   
 # ICES data (The same for the ICES data)
 only_pH_ICES <- postNN_ICES %>%
   filter(between(PRESdb, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
   filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
-  select(G2year, pH, source, country, zone)  # Clean it all
+  select(G2year, pH, source, zone)  # Clean it all
 
 # Again for the GLODAP data
 only_pH_G2 <- A %>%
   filter(between(G2depth, 100, 500)) %>%
-  select(G2year, pH, source, country, zone)
+  select(G2year, pH, epH, source, zone)
 
 # Joining the three data.frames
 pH_NN <- full_join(only_pH_OldPT, only_pH_ICES)
@@ -522,13 +550,11 @@ only_xcCO3_G2 <- A %>%
   mutate(xcCO3 = xcCO3 * 10^6)  # in micromol/kg!
 
 only_xcCO3_OldPT <- postNN_OldPT %>% 
-  rename(G2year = year) %>%  # Same name as in GLODAP
   filter(between(depth, 100, 500)) %>%
   filter(!is.na(xcCO3)) %>%
   select(G2year, xcCO3, source, country)
 
 only_xcCO3_ICES <- postNN_ICES %>% 
-  rename(G2year = year) %>%  # Same name as in GLODAP
   filter(between(PRESdb, 100, 500)) %>%
   filter(!is.na(xcCO3)) %>%
   select(G2year, xcCO3, source, country)
@@ -735,5 +761,7 @@ IF <- lapply(sheets, function(x) read_excel("Iberia-Forams_pH_data.xlsx", sheet 
 IF <- IF %>% rbind.fill()  # Combining all sheets in one data.frame
 
 IF$pH_conv <- pHconv(flag = 2, pH = IF$`pH mean value`)  # Converting free scale to total scale (pH)
+
+IF_add <- read.table("EUROFLEETS_Iberia-Forams_phys_oce.tab", header = TRUE, sep = "\t", fill = TRUE, row.names = NULL, encoding = "UTF-8")
 ```
 
