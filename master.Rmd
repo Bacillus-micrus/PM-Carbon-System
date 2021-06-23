@@ -43,6 +43,10 @@ library(stargazer)
 ABasin <- data.frame(lon = c(-13, -7), lat = c(36, 42))  # Defining the geographical region
 ```
 
+The study area covers the Portuguese Margin and is defined by the latitudes 36°-42° N and the longitudes 7°-13° W. We divided the area at latitude 39° N into a northern and a southern zone (to counteract the effect of different sampling efforts?). Only data points below 100 m, in order to avoid seasonal variation, and above 500 m, due to sample constraint in the OldPT data set, were included in the study. 
+
+currents, freshwater input...
+
 ### Loading and filtering GLODAP data
 ```{r Loading and filtering GLODAP data}
 
@@ -139,6 +143,8 @@ A_errors <- seacarb::errors(flag = A$flag,
 # rename columns, and join to the main data.frame
 A_errors <- A_errors %>%
   rename(eH = H, epH = pH, eCO2 = CO2, efCO2 = fCO2, epCO2 = pCO2, eHCO3 = HCO3, eCO3 = CO3, eDIC = DIC, eALK = ALK, eOmegaAragonite = OmegaAragonite, eOmegaCalcite = OmegaCalcite)
+
+# A_errors[, c(8, 9)] <- A_errors[, c(8, 9)] * 10^6  # why is eAlk always 2? Do I need to multiply other errors as well?
 
 A <- bind_cols(A, A_errors)
 ```
@@ -246,7 +252,8 @@ postNN_OldPT_errors <- seacarb::errors(flag = 15,  # The carbon system is comput
                           Pt = postNN_OldPT$PO4 / 10^6,  # Nutrients in µmols/Kg
                           Sit = postNN_OldPT$SiO4 / 10^6,
                           evar1 = 5.3 / 10^6,  # From Broullon 2019 alkalinity ESSD paper (abstract)
-                          evar2 = 5.3 / 10^6, 
+                          # next line not 7.2?
+                          evar2 = 5.3 / 10^6,  
                           pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74")
 
 # rename columns, and join to the main data.frame
@@ -283,6 +290,7 @@ postNN_ICES_errors <- seacarb::errors(flag = 15,  # The carbon system is compute
                           Pt = postNN_ICES$PO4 / 10^6,  # Nutrients in µmols/Kg
                           Sit = postNN_ICES$SI / 10^6,  # is this the equivalent of SiO4?
                           evar1 = 5.3 / 10^6,  # From Broullon 2019 alkalinity ESSD paper (abstract)
+                          # next line not 7.2?
                           evar2 = 5.3 / 10^6, 
                           pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74")
 
@@ -328,6 +336,8 @@ IF_add <- read.table("EUROFLEETS_Iberia-Forams_phys_oce.tab", header = TRUE, sep
 
 Cant <- read.csv("Cant_source.csv")
 
+Cant <- Cant %>% filter(!is.na(salinity), !is.na(theta))
+
 Cant$source[Cant$source == "PT"] = "OldPT"
 Cant$source[Cant$source == "G2"] = "GLODAP"
 Cant$source[Cant$source == "IC"] = "ICES"
@@ -335,6 +345,40 @@ Cant$source[Cant$source == "IC"] = "ICES"
 Cant$zone <- ifelse(Cant$latitude >= 39, "zone1", 
                     ifelse(Cant$latitude < 39, "zone2", NA))
 ```
+
+### Carbon error computations for Cant data
+```{r Carbon error computations for Cant data}
+
+Cant_errors <- seacarb::errors(flag = 15,  # The carbon system is computed with a reconstructed ALK + reconstructed DIC
+                          var1 = Cant$at / 10^6,
+                          var2 = Cant$ct / 10^6,
+                          Cant$salinity, 
+                          Cant$theta, 
+                          Cant$pressure / 10,  # Pressure in bar! (assume a 1:1 depth pressure relationship)
+                          Patm = 1.0, 
+                          Pt = Cant$phosphate / 10^6,  # Nutrients in µmols/Kg
+                          Sit = Cant$silicate / 10^6,
+                          evar1 = 5.3 / 10^6,  # From Broullon 2019 alkalinity ESSD paper (abstract)
+                          # next line not 7.2?
+                          evar2 = 5.3 / 10^6, 
+                          pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74")
+
+# rename columns, and join to the main data.frame
+Cant_errors <- Cant_errors %>%
+  rename(eH = H, epH = pH, eCO2 = CO2, efCO2 = fCO2, epCO2 = pCO2, eHCO3 = HCO3, eCO3 = CO3, eOmegaAragonite = OmegaAragonite, eOmegaCalcite = OmegaCalcite)
+
+Cant <- bind_cols(Cant, Cant_errors)
+```
+
+```{r Assigning Cant errors, eval = FALSE}
+
+# before binding Cant_errors to Cant
+
+# Cant$eDIC <- ifelse(Cant$source == GLODAP, eDIC <- 8.422331, 
+#                     ifelse(Cant$source == OldPT | ICES, eDIC <- 7.2, NA))
+
+```
+
 
 # PM trends step 2 - Trend analysis pH
 
@@ -345,13 +389,13 @@ Cant$zone <- ifelse(Cant$latitude >= 39, "zone1",
 only_pH_OldPT <- postNN_OldPT %>%  # A new data.frame from the loaded csv (and we keep it intact as postNN*)
   filter(between(depth, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
   filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
-  select(G2year, pH, source, zone)  # Clean it all
+  select(G2year, pH, epH, source, zone)  # Clean it all
   
 # ICES data (The same for the ICES data)
 only_pH_ICES <- postNN_ICES %>%
   filter(between(PRESdb, 100, 500)) %>%  # To keep only the samples between 100 m and 500 m (both included)
   filter(pH > 7.9) %>%  # To delete some samples with very low pH (freshwater influence very likely)
-  select(G2year, pH, source, zone)  # Clean it all
+  select(G2year, pH, epH, source, zone)  # Clean it all
 
 # Again for the GLODAP data
 only_pH_G2 <- A %>%
@@ -404,7 +448,7 @@ final_pH <- pH %>%
 
 final_pH_error <- pH %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Computing the mean pH and error of the mean per year for the NN data set (OldPT + ICES)
 final_pH_NN <- pH_NN %>%
@@ -413,7 +457,7 @@ final_pH_NN <- pH_NN %>%
 
 final_pH_error_NN <- pH_NN %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Computing the mean pH and error of the mean per year for the GLODAP data set
 final_pH_G2 <- only_pH_G2 %>%
@@ -422,7 +466,7 @@ final_pH_G2 <- only_pH_G2 %>%
 
 final_pH_error_G2 <- only_pH_G2 %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Zone 1
 # Computing the mean pH and error of the mean per year for the whole data set (GLODAP + OldPT + ICES)
@@ -434,7 +478,7 @@ final_pH_1 <- pH %>%
 final_pH_error_1 <- pH %>%
   subset(zone == "zone1") %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Computing the mean pH and error of the mean per year for the NN data set (OldPT + ICES)
 final_pH_NN_1 <- pH_NN %>%
@@ -445,7 +489,7 @@ final_pH_NN_1 <- pH_NN %>%
 final_pH_error_NN_1 <- pH_NN %>%
   subset(zone == "zone1") %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Computing the mean pH and error of the mean per year for the GLODAP data set
 final_pH_G2_1 <- only_pH_G2 %>%
@@ -456,7 +500,7 @@ final_pH_G2_1 <- only_pH_G2 %>%
 final_pH_error_G2_1 <- only_pH_G2 %>%
   subset(zone == "zone1") %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Zone 2
 # Computing the mean pH and error of the mean per year for the whole data set (GLODAP + OldPT + ICES)
@@ -468,7 +512,7 @@ final_pH_2 <- pH %>%
 final_pH_error_2 <- pH %>%
   subset(zone == "zone2") %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Computing the mean pH and error of the mean per year for the NN data set (OldPT + ICES)
 final_pH_NN_2 <- pH_NN %>%
@@ -479,7 +523,7 @@ final_pH_NN_2 <- pH_NN %>%
 final_pH_error_NN_2 <- pH_NN %>%
   subset(zone == "zone2") %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 
 # Computing the mean pH and error of the mean per year for the GLODAP data set
 final_pH_G2_2 <- only_pH_G2 %>%
@@ -490,7 +534,7 @@ final_pH_G2_2 <- only_pH_G2 %>%
 final_pH_error_G2_2 <- only_pH_G2 %>%
   subset(zone == "zone2") %>%
   group_by(G2year) %>%
-  summarise_at(vars(pH), sd, na.rm = TRUE)
+  summarise_at(vars(epH), mean, na.rm = TRUE)
 ```
 
 ### Robust linear model for pH
@@ -498,7 +542,7 @@ final_pH_error_G2_2 <- only_pH_G2 %>%
 
 # All zones 
 # Linear model for the complete data set (GLODAP + OldPT + ICES)
-RLMmodel_pH <- MASS::rlm(pH ~ G2year, data = final_pH, weights = (1 / final_pH_error$pH))
+RLMmodel_pH <- MASS::rlm(pH ~ G2year, data = final_pH, weights = (1 / final_pH_error$epH))
 
 tableRLMmodel_pH <- summary(RLMmodel_pH)
 trend_pH <- tableRLMmodel_pH[["coefficients"]][2, 1]  # This is the rate of change
@@ -510,7 +554,7 @@ pvalue_pH <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the NN data set (OldPT + ICES)
-RLMmodel_pH_NN <- MASS::rlm(pH ~ G2year, data = final_pH_NN, weights = (1 / final_pH_error_NN$pH))
+RLMmodel_pH_NN <- MASS::rlm(pH ~ G2year, data = final_pH_NN, weights = (1 / final_pH_error_NN$epH))
 
 tableRLMmodel_pH_NN <- summary(RLMmodel_pH_NN)
 trend_pH_NN <- tableRLMmodel_pH_NN[["coefficients"]][2, 1]  # This is the rate of change
@@ -522,7 +566,7 @@ pvalue_pH_NN <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the GLODAP data set
-RLMmodel_pH_G2 <- MASS::rlm(pH ~ G2year, data = final_pH_G2, weights = (1 / final_pH_error_G2$pH))
+RLMmodel_pH_G2 <- MASS::rlm(pH ~ G2year, data = final_pH_G2, weights = (1 / final_pH_error_G2$epH))
 
 tableRLMmodel_pH_G2 <- summary(RLMmodel_pH_G2)
 trend_pH_G2 <- tableRLMmodel_pH_G2[["coefficients"]][2, 1]  # This is the rate of change
@@ -535,7 +579,7 @@ pvalue_pH_G2 <- pnorm(
 
 # Zone 1
 # Linear model for the complete data set (GLODAP + OldPT + ICES)
-RLMmodel_pH_1 <- MASS::rlm(pH ~ G2year, data = final_pH_1, weights = (1 / final_pH_error_1$pH))
+RLMmodel_pH_1 <- MASS::rlm(pH ~ G2year, data = final_pH_1, weights = (1 / final_pH_error_1$epH))
 
 tableRLMmodel_pH_1 <- summary(RLMmodel_pH_1)
 trend_pH_1 <- tableRLMmodel_pH_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -547,7 +591,7 @@ pvalue_pH_1 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the NN data set (OldPT + ICES)
-RLMmodel_pH_NN_1 <- MASS::rlm(pH ~ G2year, data = final_pH_NN_1, weights = (1 / final_pH_error_NN_1$pH))
+RLMmodel_pH_NN_1 <- MASS::rlm(pH ~ G2year, data = final_pH_NN_1, weights = (1 / final_pH_error_NN_1$epH))
 
 tableRLMmodel_pH_NN_1 <- summary(RLMmodel_pH_NN_1)
 trend_pH_NN_1 <- tableRLMmodel_pH_NN_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -559,7 +603,7 @@ pvalue_pH_NN_1 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the GLODAP data set
-RLMmodel_pH_G2_1 <- MASS::rlm(pH ~ G2year, data = final_pH_G2_1, weights = (1 / final_pH_error_G2_1$pH))
+RLMmodel_pH_G2_1 <- MASS::rlm(pH ~ G2year, data = final_pH_G2_1, weights = (1 / final_pH_error_G2_1$epH))
 
 tableRLMmodel_pH_G2_1 <- summary(RLMmodel_pH_G2_1)
 trend_pH_G2_1 <- tableRLMmodel_pH_G2_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -572,7 +616,7 @@ pvalue_pH_G2_1 <- pnorm(
 
 # Zone 2
 # Linear model for the complete data set (GLODAP + OldPT + ICES)
-RLMmodel_pH_2 <- MASS::rlm(pH ~ G2year, data = final_pH_2, weights = (1 / final_pH_error_2$pH))
+RLMmodel_pH_2 <- MASS::rlm(pH ~ G2year, data = final_pH_2, weights = (1 / final_pH_error_2$epH))
 
 tableRLMmodel_pH_2 <- summary(RLMmodel_pH_2)
 trend_pH_2 <- tableRLMmodel_pH_2[["coefficients"]][2, 1]  # This is the rate of change
@@ -584,7 +628,7 @@ pvalue_pH_2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the NN data set (OldPT + ICES)
-RLMmodel_pH_NN_2 <- MASS::rlm(pH ~ G2year, data = final_pH_NN_2, weights = (1 / final_pH_error_NN_2$pH))
+RLMmodel_pH_NN_2 <- MASS::rlm(pH ~ G2year, data = final_pH_NN_2, weights = (1 / final_pH_error_NN_2$epH))
 
 tableRLMmodel_pH_NN_2 <- summary(RLMmodel_pH_NN_2)
 trend_pH_NN_2 <- tableRLMmodel_pH_NN_2[["coefficients"]][2, 1]  # This is the rate of change
@@ -596,7 +640,7 @@ pvalue_pH_NN_2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the GLODAP data set
-RLMmodel_pH_G2_2 <- MASS::rlm(pH ~ G2year, data = final_pH_G2_2, weights = (1 / final_pH_error_G2_2$pH))
+RLMmodel_pH_G2_2 <- MASS::rlm(pH ~ G2year, data = final_pH_G2_2, weights = (1 / final_pH_error_G2_2$epH))
 
 tableRLMmodel_pH_G2_2 <- summary(RLMmodel_pH_G2_2)
 trend_pH_G2_2 <- tableRLMmodel_pH_G2_2[["coefficients"]][2, 1]  # This is the rate of change
@@ -884,18 +928,18 @@ ggplot(final_Cant, aes(year, cAntPhiCt0ML)) +
 only_xcCO3_G2 <- A %>% 
   filter(between(G2depth, 100, 500)) %>%
   filter(!is.na(xcCO3)) %>%
-  select(G2year, xcCO3, source, zone) %>%
+  select(G2year, xcCO3, eCO3, source, zone) %>%
   mutate(xcCO3 = xcCO3 * 10^6)  # in micromol/kg!
 
 only_xcCO3_OldPT <- postNN_OldPT %>% 
   filter(between(depth, 100, 500)) %>%
   filter(!is.na(xcCO3)) %>%
-  select(G2year, xcCO3, source, zone)
+  select(G2year, xcCO3, eCO3, source, zone)
 
 only_xcCO3_ICES <- postNN_ICES %>% 
   filter(between(PRESdb, 100, 500)) %>%
   filter(!is.na(xcCO3)) %>%
-  select(G2year, xcCO3, source, zone)
+  select(G2year, xcCO3, eCO3, source, zone)
 
 # Joining the three data.farmes
 xcCO3_NN <- full_join(only_xcCO3_OldPT, only_xcCO3_ICES)
@@ -913,7 +957,7 @@ final_xcCO3 <- xcCO3 %>%
 
 final_xcCO3_error <- xcCO3 %>%
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Computing the mean xcCO3 and error of the mean per year for the NN data set
 final_xcCO3_NN <- xcCO3_NN %>%
@@ -922,7 +966,7 @@ final_xcCO3_NN <- xcCO3_NN %>%
 
 final_xcCO3_error_NN <- xcCO3_NN %>%
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Computing the mean xcCO3 and error of the mean per year for the GLODAP data set
 final_xcCO3_G2 <- only_xcCO3_G2 %>%
@@ -931,7 +975,7 @@ final_xcCO3_G2 <- only_xcCO3_G2 %>%
 
 final_xcCO3_error_G2 <- only_xcCO3_G2 %>%
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Zone 1
 # Computing the mean xcCO3 and error of the mean per year for the whole data set
@@ -943,7 +987,7 @@ final_xcCO3_1 <- xcCO3 %>%
 final_xcCO3_error_1 <- xcCO3 %>%
   subset(zone == "zone1") %>% 
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Computing the mean xcCO3 and error of the mean per year for the NN data set
 final_xcCO3_NN_1 <- xcCO3_NN %>%
@@ -954,7 +998,7 @@ final_xcCO3_NN_1 <- xcCO3_NN %>%
 final_xcCO3_error_NN_1 <- xcCO3_NN %>%
   subset(zone == "zone1") %>% 
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Computing the mean xcCO3 and error of the mean per year for the GLODAP data set
 final_xcCO3_G2_1 <- only_xcCO3_G2 %>%
@@ -965,7 +1009,7 @@ final_xcCO3_G2_1 <- only_xcCO3_G2 %>%
 final_xcCO3_error_G2_1 <- only_xcCO3_G2 %>%
   subset(zone == "zone1") %>% 
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Zone 2
 # Computing the mean xcCO3 and error of the mean per year for the whole data set
@@ -977,7 +1021,7 @@ final_xcCO3_2 <- xcCO3 %>%
 final_xcCO3_error_2 <- xcCO3 %>%
   subset(zone == "zone2") %>% 
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Computing the mean xcCO3 and error of the mean per year for the NN data set
 final_xcCO3_NN_2 <- xcCO3_NN %>%
@@ -988,7 +1032,7 @@ final_xcCO3_NN_2 <- xcCO3_NN %>%
 final_xcCO3_error_NN_2 <- xcCO3_NN %>%
   subset(zone == "zone2") %>% 
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 
 # Computing the mean xcCO3 and error of the mean per year for the GLODAP data set
 final_xcCO3_G2_2 <- only_xcCO3_G2 %>%
@@ -999,7 +1043,7 @@ final_xcCO3_G2_2 <- only_xcCO3_G2 %>%
 final_xcCO3_error_G2_2 <- only_xcCO3_G2 %>%
   subset(zone == "zone2") %>% 
   group_by(G2year) %>%
-  summarise_at(vars(xcCO3), sd, na.rm = TRUE)
+  summarise_at(vars(eCO3), mean, na.rm = TRUE)
 ```
 
 ### Robust linear model for xcCO3
@@ -1007,7 +1051,7 @@ final_xcCO3_error_G2_2 <- only_xcCO3_G2 %>%
 
 # All zones
 # Linear model for the whole data set
-RLMmodel_xcCO3 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3, weights = (1 / final_xcCO3_error$xcCO3))
+RLMmodel_xcCO3 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3, weights = (1 / final_xcCO3_error$eCO3))
 
 tableRLMmodel_xcCO3 <- summary(RLMmodel_xcCO3)
 trend_xcCO3 <- tableRLMmodel_xcCO3[["coefficients"]][2, 1]  # This is the rate of change
@@ -1019,7 +1063,7 @@ pvalue_xcCO3 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the NN data set
-RLMmodel_xcCO3_NN <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_NN, weights = (1 / final_xcCO3_error_NN$xcCO3))
+RLMmodel_xcCO3_NN <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_NN, weights = (1 / final_xcCO3_error_NN$eCO3))
 
 tableRLMmodel_xcCO3_NN <- summary(RLMmodel_xcCO3_NN)
 trend_xcCO3_NN <- tableRLMmodel_xcCO3_NN[["coefficients"]][2, 1]  # This is the rate of change
@@ -1031,7 +1075,7 @@ pvalue_xcCO3_NN <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the GLODAP data set
-RLMmodel_xcCO3_G2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_G2, weights = (1 / final_xcCO3_error_G2$xcCO3))
+RLMmodel_xcCO3_G2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_G2, weights = (1 / final_xcCO3_error_G2$eCO3))
 
 tableRLMmodel_xcCO3_G2 <- summary(RLMmodel_xcCO3_G2)
 trend_xcCO3_G2 <- tableRLMmodel_xcCO3_G2[["coefficients"]][2, 1]  # This is the rate of change
@@ -1044,7 +1088,7 @@ pvalue_xcCO3_G2 <- pnorm(
 
 # Zone 1
 # Linear model for the whole data set
-RLMmodel_xcCO3_1 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_1, weights = (1 / final_xcCO3_error_1$xcCO3))
+RLMmodel_xcCO3_1 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_1, weights = (1 / final_xcCO3_error_1$eCO3))
 
 tableRLMmodel_xcCO3_1 <- summary(RLMmodel_xcCO3_1)
 trend_xcCO3_1 <- tableRLMmodel_xcCO3_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -1056,7 +1100,7 @@ pvalue_xcCO3_1 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the NN data set
-RLMmodel_xcCO3_NN_1 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_NN_1, weights = (1 / final_xcCO3_error_NN_1$xcCO3))
+RLMmodel_xcCO3_NN_1 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_NN_1, weights = (1 / final_xcCO3_error_NN_1$eCO3))
 
 tableRLMmodel_xcCO3_NN_1 <- summary(RLMmodel_xcCO3_NN_1)
 trend_xcCO3_NN_1 <- tableRLMmodel_xcCO3_NN_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -1068,7 +1112,7 @@ pvalue_xcCO3_NN_1 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the GLODAP data set
-RLMmodel_xcCO3_G2_1 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_G2_1, weights = (1 / final_xcCO3_error_G2_1$xcCO3))
+RLMmodel_xcCO3_G2_1 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_G2_1, weights = (1 / final_xcCO3_error_G2_1$eCO3))
 
 tableRLMmodel_xcCO3_G2_1 <- summary(RLMmodel_xcCO3_G2_1)
 trend_xcCO3_G2_1 <- tableRLMmodel_xcCO3_G2_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -1081,7 +1125,7 @@ pvalue_xcCO3_G2_1 <- pnorm(
 
 # Zone 2
 # Linear model for the whole data set
-RLMmodel_xcCO3_2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_2, weights = (1 / final_xcCO3_error_2$xcCO3))
+RLMmodel_xcCO3_2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_2, weights = (1 / final_xcCO3_error_2$eCO3))
 
 tableRLMmodel_xcCO3_2 <- summary(RLMmodel_xcCO3_2)
 trend_xcCO3_2 <- tableRLMmodel_xcCO3_2[["coefficients"]][2, 1]  # This is the rate of change
@@ -1093,7 +1137,7 @@ pvalue_xcCO3_2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the NN data set
-RLMmodel_xcCO3_NN_2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_NN_2, weights = (1 / final_xcCO3_error_NN_2$xcCO3))
+RLMmodel_xcCO3_NN_2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_NN_2, weights = (1 / final_xcCO3_error_NN_2$eCO3))
 
 tableRLMmodel_xcCO3_NN_2 <- summary(RLMmodel_xcCO3_NN_2)
 trend_xcCO3_NN_2 <- tableRLMmodel_xcCO3_NN_2[["coefficients"]][2, 1]  # This is the rate of change
@@ -1105,7 +1149,7 @@ pvalue_xcCO3_NN_2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Linear model for the GLODAP data set
-RLMmodel_xcCO3_G2_2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_G2_2, weights = (1 / final_xcCO3_error_G2_2$xcCO3))
+RLMmodel_xcCO3_G2_2 <- MASS::rlm(xcCO3 ~ G2year, data = final_xcCO3_G2_2, weights = (1 / final_xcCO3_error_G2_2$eCO3))
 
 tableRLMmodel_xcCO3_G2_2 <- summary(RLMmodel_xcCO3_G2_2)
 trend_xcCO3_G2_2 <- tableRLMmodel_xcCO3_G2_2[["coefficients"]][2, 1]  # This is the rate of change
