@@ -144,7 +144,7 @@ A_errors <- seacarb::errors(flag = A$flag,
 A_errors <- A_errors %>%
   rename(eH = H, epH = pH, eCO2 = CO2, efCO2 = fCO2, epCO2 = pCO2, eHCO3 = HCO3, eCO3 = CO3, eDIC = DIC, eALK = ALK, eOmegaAragonite = OmegaAragonite, eOmegaCalcite = OmegaCalcite)
 
-# A_errors[, c(8, 9)] <- A_errors[, c(8, 9)] * 10^6  # why is eAlk always 2? Do I need to multiply other errors as well?
+A_errors[, c(6, 7, 8, 9)] <- A_errors[, c(6, 7, 8, 9)] * 10^6
 
 A <- bind_cols(A, A_errors)
 ```
@@ -199,13 +199,13 @@ A <- left_join(A, CO2, by = "G2year")
     ylab("Potential Temperature [°C]")
 
   ggplot(A, aes(x = country)) +
-    geom_bar(aes(fill = country)) +
+    geom_bar(aes(fill = country), show.legend = FALSE) +
     scale_fill_brewer(type = "qual", palette = "Set1") +
     labs(x = "Country", y = "Number of samples") +
     theme_minimal()
   
   ggplot(A, aes(x = G2year)) +
-    geom_histogram(aes(fill = country), alpha = .5) +
+    geom_histogram(aes(fill = country)) +
     scale_fill_brewer(type = "qual", palette = "Set1") +
     labs(x = "Year", y = "Number of samples") +
     theme_minimal()
@@ -252,13 +252,14 @@ postNN_OldPT_errors <- seacarb::errors(flag = 15,  # The carbon system is comput
                           Pt = postNN_OldPT$PO4 / 10^6,  # Nutrients in µmols/Kg
                           Sit = postNN_OldPT$SiO4 / 10^6,
                           evar1 = 5.3 / 10^6,  # From Broullon 2019 alkalinity ESSD paper (abstract)
-                          # next line not 7.2?
-                          evar2 = 5.3 / 10^6,  
+                          evar2 = 7.2 / 10^6,  
                           pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74")
 
 # rename columns, and join to the main data.frame
 postNN_OldPT_errors <- postNN_OldPT_errors %>%
   rename(eH = H, epH = pH, eCO2 = CO2, efCO2 = fCO2, epCO2 = pCO2, eHCO3 = HCO3, eCO3 = CO3, eOmegaAragonite = OmegaAragonite, eOmegaCalcite = OmegaCalcite)
+
+postNN_OldPT_errors[, c(6, 7)] <- postNN_OldPT_errors[, c(6, 7)] * 10^6
 
 postNN_OldPT <- bind_cols(postNN_OldPT, postNN_OldPT_errors)
 ```
@@ -290,13 +291,14 @@ postNN_ICES_errors <- seacarb::errors(flag = 15,  # The carbon system is compute
                           Pt = postNN_ICES$PO4 / 10^6,  # Nutrients in µmols/Kg
                           Sit = postNN_ICES$SI / 10^6,  # is this the equivalent of SiO4?
                           evar1 = 5.3 / 10^6,  # From Broullon 2019 alkalinity ESSD paper (abstract)
-                          # next line not 7.2?
-                          evar2 = 5.3 / 10^6, 
+                          evar2 = 7.2 / 10^6, 
                           pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74")
 
 # rename columns, and join to the main data.frame
 postNN_ICES_errors <- postNN_ICES_errors %>%
   rename(eH = H, epH = pH, eCO2 = CO2, efCO2 = fCO2, epCO2 = pCO2, eHCO3 = HCO3, eCO3 = CO3, eOmegaAragonite = OmegaAragonite, eOmegaCalcite = OmegaCalcite)
+
+postNN_ICES_errors[, c(6, 7)] <- postNN_ICES_errors[, c(6, 7)] * 10^6
 
 postNN_ICES <- bind_cols(postNN_ICES, postNN_ICES_errors)
 ```
@@ -326,9 +328,18 @@ sheets <- excel_sheets("Iberia-Forams_pH_data.xlsx")
 IF <- lapply(sheets, function(x) read_excel("Iberia-Forams_pH_data.xlsx", sheet = x))  # Reading all sheets
 IF <- IF %>% rbind.fill()  # Combining all sheets in one data.frame
 
-IF$pH_conv <- pHconv(flag = 2, pH = IF$`pH mean value`)  # Converting free scale to total scale (pH)
+IF_add <- read_excel("Iberia-Forams_phys_oce.xlsx", col_names = TRUE)
 
-IF_add <- read.table("EUROFLEETS_Iberia-Forams_phys_oce.tab", header = TRUE, sep = "\t", fill = TRUE, row.names = NULL, encoding = "UTF-8")
+# match column names
+# remove space from Station ID in IF
+IF$`Station ID` <- str_replace_all(IF$`Station ID`, fixed(" "), "")
+# change date format in IF
+# change to decimal lat & lon in IF
+# round depth in If_add (to next 5?)
+# add variables from IF_add based on station, date, lat, lon, and depth
+# which temp to use? mean of IF temps?
+
+# IF$pH_conv <- pHconv(flag = 2, pH = IF$`pH mean value`)  # Converting free scale to total scale (pH)
 ```
 
 ### Adding Cant data
@@ -359,26 +370,21 @@ Cant_errors <- seacarb::errors(flag = 15,  # The carbon system is computed with 
                           Pt = Cant$phosphate / 10^6,  # Nutrients in µmols/Kg
                           Sit = Cant$silicate / 10^6,
                           evar1 = 5.3 / 10^6,  # From Broullon 2019 alkalinity ESSD paper (abstract)
-                          # next line not 7.2?
-                          evar2 = 5.3 / 10^6, 
+                          evar2 = 7.2 / 10^6, 
                           pHscale = "T", kf = "pf", k1k2 = "l", ks = "d", b = "u74")
 
 # rename columns, and join to the main data.frame
 Cant_errors <- Cant_errors %>%
   rename(eH = H, epH = pH, eCO2 = CO2, efCO2 = fCO2, epCO2 = pCO2, eHCO3 = HCO3, eCO3 = CO3, eOmegaAragonite = OmegaAragonite, eOmegaCalcite = OmegaCalcite)
 
+Cant_errors[, c(6, 7)] <- Cant_errors[, c(6, 7)] * 10^6
+
+Cant$eCant <- ifelse(Cant$source == "GLODAP", eDIC <- 8.422331, 
+                            ifelse(Cant$source == "OldPT", eDIC <- 7.2,
+                                   ifelse(Cant$source == "ICES", eDIC <- 7.2, NA)))
+
 Cant <- bind_cols(Cant, Cant_errors)
 ```
-
-```{r Assigning Cant errors, eval = FALSE}
-
-# before binding Cant_errors to Cant
-
-# Cant$eDIC <- ifelse(Cant$source == GLODAP, eDIC <- 8.422331, 
-#                     ifelse(Cant$source == OldPT | ICES, eDIC <- 7.2, NA))
-
-```
-
 
 # PM trends step 2 - Trend analysis pH
 
@@ -678,7 +684,7 @@ only_Cant <- Cant %>%
   mutate_all(.funs = funs(ifelse(. == "NaN", NA, .))) %>%
   filter(between(Depth, 100, 500)) %>%
   filter(!is.na(cAntPhiCt0ML)) %>%
-  select(year, cAntPhiCt0ML, source, zone)
+  select(year, cAntPhiCt0ML, eCant, source, zone)
 ```
 
 ### Computing mean Cant per year and error of the mean
@@ -692,7 +698,7 @@ final_Cant <- only_Cant %>%
 
 final_Cant_error <- only_Cant %>%
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # Neural network data
 final_Cant_NN <- only_Cant %>%
@@ -703,7 +709,7 @@ final_Cant_NN <- only_Cant %>%
 final_Cant_error_NN <- only_Cant %>%
   filter(source == "OldPT" | source == "ICES") %>%
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # GLODAP data
 final_Cant_G2 <- only_Cant %>%
@@ -714,7 +720,7 @@ final_Cant_G2 <- only_Cant %>%
 final_Cant_error_G2 <- only_Cant %>%
   filter(source == "GLODAP") %>%
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # Zone 1
 # complete data set
@@ -726,7 +732,7 @@ final_Cant_1 <- only_Cant %>%
 final_Cant_error_1 <- only_Cant %>%
   subset(zone == "zone1") %>% 
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # Neural network data
 final_Cant_NN_1 <- only_Cant %>%
@@ -739,7 +745,7 @@ final_Cant_error_NN_1 <- only_Cant %>%
   subset(zone == "zone1") %>% 
   filter(source == "OldPT" | source == "ICES") %>%
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # GLODAP data
 final_Cant_G2_1 <- only_Cant %>%
@@ -752,7 +758,7 @@ final_Cant_error_G2_1 <- only_Cant %>%
   subset(zone == "zone1") %>% 
   filter(source == "GLODAP") %>%
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # Zone 2
 # complete data set
@@ -764,7 +770,7 @@ final_Cant_2 <- only_Cant %>%
 final_Cant_error_2 <- only_Cant %>%
   subset(zone == "zone2") %>% 
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # Neural network data
 final_Cant_NN_2 <- only_Cant %>%
@@ -777,7 +783,7 @@ final_Cant_error_NN_2 <- only_Cant %>%
   subset(zone == "zone2") %>% 
   filter(source == "OldPT" | source == "ICES") %>%
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 
 # GLODAP data
 final_Cant_G2_2 <- only_Cant %>%
@@ -790,7 +796,7 @@ final_Cant_error_G2_2 <- only_Cant %>%
   subset(zone == "zone2") %>% 
   filter(source == "GLODAP") %>%
   group_by(year) %>%
-  summarise_at(vars(cAntPhiCt0ML), sd, na.rm = TRUE)
+  summarise_at(vars(eCant), mean, na.rm = TRUE)
 ```
 
 ### Robust linear model for Cant
@@ -798,7 +804,7 @@ final_Cant_error_G2_2 <- only_Cant %>%
 
 # All zones 
 # Complete data set
-RLMmodel_Cant <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant, weights = (1 / final_Cant_error$cAntPhiCt0ML))
+RLMmodel_Cant <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant, weights = (1 / final_Cant_error$eCant))
 
 tableRLMmodel_Cant <- summary(RLMmodel_Cant)
 trend_Cant <- tableRLMmodel_Cant[["coefficients"]][2, 1]  # This is the rate of change
@@ -810,7 +816,7 @@ pvalue_Cant <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Neural network data
-RLMmodel_Cant_NN <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_NN, weights = (1 / final_Cant_error_NN$cAntPhiCt0ML))
+RLMmodel_Cant_NN <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_NN, weights = (1 / final_Cant_error_NN$eCant))
 
 tableRLMmodel_Cant_NN <- summary(RLMmodel_Cant_NN)
 trend_Cant_NN <- tableRLMmodel_Cant_NN[["coefficients"]][2, 1]  # This is the rate of change
@@ -822,7 +828,7 @@ pvalue_Cant_NN <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # GLODAP data
-RLMmodel_Cant_G2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_G2, weights = (1 / final_Cant_error_G2$cAntPhiCt0ML))
+RLMmodel_Cant_G2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_G2, weights = (1 / final_Cant_error_G2$eCant))
 
 tableRLMmodel_Cant_G2 <- summary(RLMmodel_Cant_G2)
 trend_Cant_G2 <- tableRLMmodel_Cant_G2[["coefficients"]][2, 1]  # This is the rate of change
@@ -835,7 +841,7 @@ pvalue_Cant_G2 <- pnorm(
 
 # Zone 1
 # Complete data set
-RLMmodel_Cant_1 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_1, weights = (1 / final_Cant_error_1$cAntPhiCt0ML))
+RLMmodel_Cant_1 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_1, weights = (1 / final_Cant_error_1$eCant))
 
 tableRLMmodel_Cant_1 <- summary(RLMmodel_Cant_1)
 trend_Cant_1 <- tableRLMmodel_Cant_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -847,7 +853,7 @@ pvalue_Cant_1 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Neural network data
-RLMmodel_Cant_NN_1 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_NN_1, weights = (1 / final_Cant_error_NN_1$cAntPhiCt0ML))
+RLMmodel_Cant_NN_1 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_NN_1, weights = (1 / final_Cant_error_NN_1$eCant))
 
 tableRLMmodel_Cant_NN_1 <- summary(RLMmodel_Cant_NN_1)
 trend_Cant_NN_1 <- tableRLMmodel_Cant_NN_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -859,7 +865,7 @@ pvalue_Cant_NN_1 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # GLODAP data
-RLMmodel_Cant_G2_1 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_G2_1, weights = (1 / final_Cant_error_G2_1$cAntPhiCt0ML))
+RLMmodel_Cant_G2_1 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_G2_1, weights = (1 / final_Cant_error_G2_1$eCant))
 
 tableRLMmodel_Cant_G2_1 <- summary(RLMmodel_Cant_G2_1)
 trend_Cant_G2_1 <- tableRLMmodel_Cant_G2_1[["coefficients"]][2, 1]  # This is the rate of change
@@ -872,7 +878,7 @@ pvalue_Cant_G2_1 <- pnorm(
 
 # Zone 2
 # Complete data set
-RLMmodel_Cant_2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_2, weights = (1 / final_Cant_error_2$cAntPhiCt0ML))
+RLMmodel_Cant_2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_2, weights = (1 / final_Cant_error_2$eCant))
 
 tableRLMmodel_Cant_2 <- summary(RLMmodel_Cant_2)
 trend_Cant_2 <- tableRLMmodel_Cant_2[["coefficients"]][2, 1]  # This is the rate of change
@@ -884,7 +890,7 @@ pvalue_Cant_2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # Neural network data
-RLMmodel_Cant_NN_2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_NN_2, weights = (1 / final_Cant_error_NN_2$cAntPhiCt0ML))
+RLMmodel_Cant_NN_2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_NN_2, weights = (1 / final_Cant_error_NN_2$eCant))
 
 tableRLMmodel_Cant_NN_2 <- summary(RLMmodel_Cant_NN_2)
 trend_Cant_NN_2 <- tableRLMmodel_Cant_NN_2[["coefficients"]][2, 1]  # This is the rate of change
@@ -896,7 +902,7 @@ pvalue_Cant_NN_2 <- pnorm(
     [2, "statistic", drop = TRUE]), lower.tail = FALSE) * 2
 
 # GLODAP data
-RLMmodel_Cant_G2_2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_G2_2, weights = (1 / final_Cant_error_G2_2$cAntPhiCt0ML))
+RLMmodel_Cant_G2_2 <- MASS::rlm(cAntPhiCt0ML ~ year, data = final_Cant_G2_2, weights = (1 / final_Cant_error_G2_2$eCant))
 
 tableRLMmodel_Cant_G2_2 <- summary(RLMmodel_Cant_G2_2)
 trend_Cant_G2_2 <- tableRLMmodel_Cant_G2_2[["coefficients"]][2, 1]  # This is the rate of change
