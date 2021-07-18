@@ -14,7 +14,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
 
 # This step installs packages if needed
-list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "rgdal", "raster", "seacarb", "xlsx", "reshape2", "readr", "lubridate", "stargazer")
+list.of.packages <- c("R.matlab", "rlist", "tidyverse", "readxl", "marmap", "rgdal", "raster", "seacarb", "xlsx", "reshape2", "readr", "lubridate", "stargazer", "sp", "parzer")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 
@@ -33,6 +33,8 @@ library(reshape2)
 library(readr)
 library(lubridate)
 library(stargazer)
+library(sp)
+library(parzer)
 ```
 
 # PM trends step 1 - Preparation, carbon computations, and preliminary analysis
@@ -327,16 +329,35 @@ postNN_ICES <- bind_cols(postNN_ICES, postNN_ICES_errors)
 sheets <- excel_sheets("Iberia-Forams_pH_data.xlsx")
 IF <- lapply(sheets, function(x) read_excel("Iberia-Forams_pH_data.xlsx", sheet = x))  # Reading all sheets
 IF <- IF %>% rbind.fill()  # Combining all sheets in one data.frame
-
 IF_add <- read_excel("Iberia-Forams_phys_oce.xlsx", col_names = TRUE)
 
 # match column names
+IF <- rename(IF, Station = `Station ID`, Latitude = `Latitude (N)`, Longitude = `Longitude (W)`, Depth = `Sample Depth (m)`)
+IF_add <- rename(IF_add, Station = Event, Date = `Date/Time`, Depth = `Depth water [m]`)
+
 # remove space from Station ID in IF
-IF$`Station ID` <- str_replace_all(IF$`Station ID`, fixed(" "), "")
+IF$`Station ID` <- str_replace_all(IF$Station, fixed(" "), "")
+
 # change date format in IF
+IF$Date <- dmy(IF$Date)
+
 # change to decimal lat & lon in IF
+# Try number 1 with the sp package
+chd <- substr(IF$Latitude, 3, 4)[1]
+chm <- substr(IF$Latitude, 7, 7)[1]
+chs <- substr(IF$Latitude, 10, 10)[1]
+cd <- char2dms(IF$Latitude, chd = chd, chm = chm, chs = chs)
+cd2 <- char2dms(IF$Longitude, chd = chd, chm = chm, chs = chs)
+as.numeric(cd)
+as.numeric(cd2)
+# Try number 2 with the parzer package
+IF$Latitude <- parse_lat(IF$Latitude)
+
 # round depth in If_add (to next 5?)
+IF_add$Depth <- round(IF_add$Depth / 5) * 5
+
 # add variables from IF_add based on station, date, lat, lon, and depth
+
 # which temp to use? mean of IF temps?
 
 # IF$pH_conv <- pHconv(flag = 2, pH = IF$`pH mean value`)  # Converting free scale to total scale (pH)
